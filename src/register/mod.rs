@@ -102,7 +102,7 @@ pub struct StatusFlags {
 /// Decoded content of `Update_0` (0x10) and `Update_1` (0x11).
 ///
 /// Flags are set by the sink to notify the source of state changes. The source
-/// reads and then clears them via `Scdc::clear_update_flags`.
+/// reads and then clears them via [`Scdc::clear_update_flags`](crate::Scdc::clear_update_flags).
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UpdateFlags {

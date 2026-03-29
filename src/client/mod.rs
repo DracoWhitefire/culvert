@@ -2,9 +2,9 @@
 
 use hdmi_hal::scdc::ScdcTransport;
 
-use crate::error::ScdcError;
+use crate::error::{ProtocolError, ScdcError};
 use crate::register::address;
-use crate::register::{ScramblerStatus, TmdsConfig};
+use crate::register::{FrlConfig, LtpReq, ScramblerStatus, StatusFlags, TmdsConfig, UpdateFlags};
 
 /// Typed client for the HDMI 2.1 SCDC (Status and Control Data Channel) register map.
 ///
@@ -69,5 +69,89 @@ impl<T: ScdcTransport> Scdc<T> {
         Ok(ScramblerStatus {
             scrambling_active: byte & 0x01 != 0,
         })
+    }
+
+    /// Writes FRL training configuration to `Config_0` (0x30).
+    ///
+    /// Encodes `FRL_Rate` into bits\[3:0\], `DSC_FRL_Max` into bit\[4\], and
+    /// `FFE_Levels` into bits\[7:5\].
+    pub fn write_frl_config(&mut self, config: FrlConfig) -> Result<(), ScdcError<T::Error>> {
+        let byte = (config.frl_rate as u8)
+            | ((config.dsc_frl_max as u8) << 4)
+            | ((config.ffe_levels as u8) << 5);
+        self.transport
+            .write(address::CONFIG_0, byte)
+            .map_err(ScdcError::Transport)
+    }
+
+    /// Reads FRL status from `Status_Flags_0` (0x40) and `Status_Flags_1` (0x41).
+    ///
+    /// Returns [`crate::ProtocolError::UnknownLtpReq`] if the sink reports an
+    /// LTP request value not defined by the HDMI 2.1 specification.
+    pub fn read_status_flags(&mut self) -> Result<StatusFlags, ScdcError<T::Error>> {
+        let flags0 = self
+            .transport
+            .read(address::STATUS_FLAGS_0)
+            .map_err(ScdcError::Transport)?;
+        let flags1 = self
+            .transport
+            .read(address::STATUS_FLAGS_1)
+            .map_err(ScdcError::Transport)?;
+
+        let ltp_req = match (flags1 >> 4) & 0x0F {
+            0 => LtpReq::None,
+            1 => LtpReq::Lfsr0,
+            2 => LtpReq::Lfsr1,
+            3 => LtpReq::Lfsr2,
+            4 => LtpReq::Lfsr3,
+            raw => return Err(ScdcError::Protocol(ProtocolError::UnknownLtpReq(raw))),
+        };
+
+        Ok(StatusFlags {
+            clock_detected: flags0 & 0x01 != 0,
+            cable_connected: flags0 & 0x02 != 0,
+            ch0_locked: flags0 & 0x04 != 0,
+            ch1_locked: flags0 & 0x08 != 0,
+            ch2_locked: flags0 & 0x10 != 0,
+            ch3_locked: flags0 & 0x20 != 0,
+            flt_ready: flags0 & 0x40 != 0,
+            frl_start: flags1 & 0x01 != 0,
+            ltp_req,
+        })
+    }
+
+    /// Reads update flags from `Update_0` (0x10) and `Update_1` (0x11).
+    pub fn read_update_flags(&mut self) -> Result<UpdateFlags, ScdcError<T::Error>> {
+        let u0 = self
+            .transport
+            .read(address::UPDATE_0)
+            .map_err(ScdcError::Transport)?;
+        let u1 = self
+            .transport
+            .read(address::UPDATE_1)
+            .map_err(ScdcError::Transport)?;
+        Ok(UpdateFlags {
+            status_update: u0 & 0x01 != 0,
+            ced_update: u0 & 0x02 != 0,
+            frl_update: u0 & 0x04 != 0,
+            dsc_update: u1 & 0x01 != 0,
+        })
+    }
+
+    /// Clears the specified update flags in `Update_0` (0x10) and `Update_1` (0x11).
+    ///
+    /// Each flag set to `true` in `flags` is cleared (write-1-to-clear). Flags
+    /// set to `false` are left unchanged.
+    pub fn clear_update_flags(&mut self, flags: UpdateFlags) -> Result<(), ScdcError<T::Error>> {
+        let u0 = (flags.status_update as u8)
+            | ((flags.ced_update as u8) << 1)
+            | ((flags.frl_update as u8) << 2);
+        let u1 = flags.dsc_update as u8;
+        self.transport
+            .write(address::UPDATE_0, u0)
+            .map_err(ScdcError::Transport)?;
+        self.transport
+            .write(address::UPDATE_1, u1)
+            .map_err(ScdcError::Transport)
     }
 }
