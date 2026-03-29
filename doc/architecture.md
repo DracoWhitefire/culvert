@@ -99,6 +99,44 @@ training layer are available in 0.1.0; the remainder are tracked on the roadmap.
 
 ---
 
+## The `Scdc<T>` Client
+
+The central type is a thin client struct that owns the transport and exposes typed
+methods grouped by register function:
+
+```rust
+pub struct Scdc<T> {
+    transport: T,
+}
+
+impl<T: ScdcTransport> Scdc<T> {
+    pub fn new(transport: T) -> Self;
+    pub fn into_transport(self) -> T;
+
+    // Version
+    pub fn read_sink_version(&mut self) -> Result<u8, ScdcError<T::Error>>;
+    pub fn write_source_version(&mut self, version: u8) -> Result<(), ScdcError<T::Error>>;
+
+    // Scrambling
+    pub fn write_tmds_config(&mut self, config: TmdsConfig) -> Result<(), ScdcError<T::Error>>;
+    pub fn read_scrambler_status(&mut self) -> Result<ScramblerStatus, ScdcError<T::Error>>;
+
+    // FRL training primitives
+    pub fn write_config(&mut self, config: FrlConfig) -> Result<(), ScdcError<T::Error>>;
+    pub fn read_status_flags(&mut self) -> Result<StatusFlags, ScdcError<T::Error>>;
+    pub fn read_update_flags(&mut self) -> Result<UpdateFlags, ScdcError<T::Error>>;
+    pub fn clear_update_flags(&mut self, flags: UpdateFlags) -> Result<(), ScdcError<T::Error>>;
+
+    // CED
+    pub fn read_ced(&mut self) -> Result<CedCounters, ScdcError<T::Error>>;
+}
+```
+
+`Scdc<T>` holds no state beyond the transport. Register reads and writes are direct and
+stateless from the client's perspective; any sequencing state lives in the caller.
+
+---
+
 
 ## Key Types
 
