@@ -4,7 +4,9 @@ use hdmi_hal::scdc::ScdcTransport;
 
 use crate::error::{ProtocolError, ScdcError};
 use crate::register::address;
-use crate::register::{FrlConfig, LtpReq, ScramblerStatus, StatusFlags, TmdsConfig, UpdateFlags};
+use crate::register::{
+    CedCount, CedCounters, FrlConfig, LtpReq, ScramblerStatus, StatusFlags, TmdsConfig, UpdateFlags,
+};
 
 /// Typed client for the HDMI 2.1 SCDC (Status and Control Data Channel) register map.
 ///
@@ -153,5 +155,55 @@ impl<T: ScdcTransport> Scdc<T> {
         self.transport
             .write(address::UPDATE_1, u1)
             .map_err(ScdcError::Transport)
+    }
+
+    /// Reads per-lane character error counts from `ERR_DET` registers (0x50–0x57).
+    ///
+    /// Each lane's counter is decoded from a low/high byte pair. The high byte's
+    /// bit 7 is a validity flag; if it is not set the lane's counter is `None`.
+    pub fn read_ced(&mut self) -> Result<CedCounters, ScdcError<T::Error>> {
+        let l0 = self
+            .transport
+            .read(address::ERR_DET_0_L)
+            .map_err(ScdcError::Transport)?;
+        let h0 = self
+            .transport
+            .read(address::ERR_DET_0_H)
+            .map_err(ScdcError::Transport)?;
+        let l1 = self
+            .transport
+            .read(address::ERR_DET_1_L)
+            .map_err(ScdcError::Transport)?;
+        let h1 = self
+            .transport
+            .read(address::ERR_DET_1_H)
+            .map_err(ScdcError::Transport)?;
+        let l2 = self
+            .transport
+            .read(address::ERR_DET_2_L)
+            .map_err(ScdcError::Transport)?;
+        let h2 = self
+            .transport
+            .read(address::ERR_DET_2_H)
+            .map_err(ScdcError::Transport)?;
+        let l3 = self
+            .transport
+            .read(address::ERR_DET_3_L)
+            .map_err(ScdcError::Transport)?;
+        let h3 = self
+            .transport
+            .read(address::ERR_DET_3_H)
+            .map_err(ScdcError::Transport)?;
+
+        let decode = |lo: u8, hi: u8| -> Option<CedCount> {
+            (hi & 0x80 != 0).then(|| CedCount::new(((hi as u16) << 8) | lo as u16))
+        };
+
+        Ok(CedCounters {
+            lane0: decode(l0, h0),
+            lane1: decode(l1, h1),
+            lane2: decode(l2, h2),
+            lane3: decode(l3, h3),
+        })
     }
 }
