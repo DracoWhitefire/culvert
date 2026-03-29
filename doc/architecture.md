@@ -58,6 +58,46 @@ hdmi-hal       ─┴─►  culvert  ──►  frl-training
 
 Culvert does not depend on `piaf` or `concordance`. It is consumed by the link training
 crate, which sequences culvert's operations according to the FRL training algorithm.
+---
+
+## The SCDC Register Map
+
+SCDC is defined in HDMI 2.1 spec section 10.4. Registers are one byte wide, addressed
+by a one-byte offset over DDC/I²C to the sink's SCDC address (0x54).
+
+The register map divides into four functional groups:
+
+**Version** (0x01–0x02)
+- `Sink_Version` (0x01, R) — SCDC protocol version supported by the sink.
+- `Source_Version` (0x02, W) — SCDC protocol version the source intends to use.
+
+**Update flags** (0x10–0x11)
+- `Update_0` (0x10, R/W) — change notification flags: `FRL_Update`, `CED_Update`,
+  `Status_Update`. The source reads and then clears these to detect sink-side state
+  changes without polling every status register on every pass.
+- `Update_1` (0x11, R/W) — additional update flags.
+
+**TMDS and scrambling** (0x20–0x21)
+- `TMDS_Config` (0x20, W) — `Scrambling_Enable` and `TMDS_Bit_Clock_Ratio`.
+- `Scrambler_Status` (0x21, R) — sink acknowledgement that scrambling is active.
+
+**FRL configuration and status** (0x30–0x41)
+- `Config_0` (0x30, W) — `FRL_Rate` (4 bits, maps to `HdmiForumFrl`), `DSC_FRL_Max`,
+  `FFE_Levels`. Written by the source to request a training rate.
+- `Status_Flags_0` (0x40, R) — `Clock_Detected`, `Cable_Connected`, per-lane lock bits
+  (`Ch0_Locked`–`Ch3_Locked`), `FLT_Ready` (sink ready to begin link training).
+- `Status_Flags_1` (0x41, R) — `FRL_Start`, `LTP_Req` (link training pattern request
+  from sink).
+
+**Character Error Detection** (0x50–0x57)
+- `ERR_DET_0_L/H` through `ERR_DET_3_L/H` — per-lane 15-bit error counters with a
+  validity bit in the high byte. Lane 3 is only populated in FRL mode (4-lane).
+  Counters are read as a pair (low + high byte) to form a single `u16` value.
+
+All registers are implemented in full per the spec. Registers needed by the link
+training layer are available in 0.1.0; the remainder are tracked on the roadmap.
+
+---
 
 
 ## Key Types
