@@ -248,6 +248,22 @@ mod tests {
         }
     }
 
+    // ── Version ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn read_sink_version_returns_register_value() {
+        let mut sim = Sim::new();
+        sim.set(0x01, 0x01);
+        assert_eq!(Scdc::new(sim).read_sink_version().unwrap(), 0x01);
+    }
+
+    #[test]
+    fn write_source_version_writes_register() {
+        let mut scdc = Scdc::new(Sim::new());
+        scdc.write_source_version(0x01).unwrap();
+        assert_eq!(scdc.into_transport().get(0x02), 0x01);
+    }
+
     // ── TMDS_Config ───────────────────────────────────────────────────────────
 
     #[test]
