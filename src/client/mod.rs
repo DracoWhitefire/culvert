@@ -207,3 +207,257 @@ impl<T: ScdcTransport> Scdc<T> {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use core::convert::Infallible;
+    use display_types::HdmiForumFrl;
+
+    use super::*;
+    use crate::error::ProtocolError;
+    use crate::register::{CedCount, FfeLevels, FrlConfig, LtpReq, ScramblerStatus, StatusFlags};
+
+    struct Sim {
+        regs: [u8; 256],
+    }
+
+    impl Sim {
+        fn new() -> Self {
+            Self { regs: [0u8; 256] }
+        }
+
+        fn set(&mut self, addr: u8, val: u8) {
+            self.regs[addr as usize] = val;
+        }
+
+        fn get(&self, addr: u8) -> u8 {
+            self.regs[addr as usize]
+        }
+    }
+
+    impl ScdcTransport for Sim {
+        type Error = Infallible;
+
+        fn read(&mut self, reg: u8) -> Result<u8, Infallible> {
+            Ok(self.regs[reg as usize])
+        }
+
+        fn write(&mut self, reg: u8, value: u8) -> Result<(), Infallible> {
+            self.regs[reg as usize] = value;
+            Ok(())
+        }
+    }
+
+    // ── TMDS_Config ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn tmds_config_scrambling_only() {
+        let mut scdc = Scdc::new(Sim::new());
+        scdc.write_tmds_config(TmdsConfig { scrambling_enable: true, high_tmds_clock_ratio: false })
+            .unwrap();
+        assert_eq!(scdc.into_transport().get(0x20), 0x01);
+    }
+
+    #[test]
+    fn tmds_config_clock_ratio_only() {
+        let mut scdc = Scdc::new(Sim::new());
+        scdc.write_tmds_config(TmdsConfig { scrambling_enable: false, high_tmds_clock_ratio: true })
+            .unwrap();
+        assert_eq!(scdc.into_transport().get(0x20), 0x02);
+    }
+
+    #[test]
+    fn tmds_config_both_clear() {
+        let mut scdc = Scdc::new(Sim::new());
+        scdc.write_tmds_config(TmdsConfig { scrambling_enable: false, high_tmds_clock_ratio: false })
+            .unwrap();
+        assert_eq!(scdc.into_transport().get(0x20), 0x00);
+    }
+
+    // ── Scrambler_Status ──────────────────────────────────────────────────────
+
+    #[test]
+    fn scrambler_status_bit0_set() {
+        let mut sim = Sim::new();
+        sim.set(0x21, 0xFF); // all bits set; only bit 0 is defined
+        let mut scdc = Scdc::new(sim);
+        assert_eq!(
+            scdc.read_scrambler_status().unwrap(),
+            ScramblerStatus { scrambling_active: true }
+        );
+    }
+
+    #[test]
+    fn scrambler_status_bit0_clear() {
+        let mut sim = Sim::new();
+        sim.set(0x21, 0xFE); // bit 0 clear, other bits set (reserved)
+        let mut scdc = Scdc::new(sim);
+        assert_eq!(
+            scdc.read_scrambler_status().unwrap(),
+            ScramblerStatus { scrambling_active: false }
+        );
+    }
+
+    // ── Config_0 ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn frl_config_rate_field() {
+        let mut scdc = Scdc::new(Sim::new());
+        scdc.write_frl_config(FrlConfig {
+            frl_rate: HdmiForumFrl::Rate12Gbps4Lanes, // discriminant 6
+            dsc_frl_max: false,
+            ffe_levels: FfeLevels::Ffe0,
+        })
+        .unwrap();
+        assert_eq!(scdc.into_transport().get(0x30), 0x06);
+    }
+
+    #[test]
+    fn frl_config_dsc_frl_max_field() {
+        let mut scdc = Scdc::new(Sim::new());
+        scdc.write_frl_config(FrlConfig {
+            frl_rate: HdmiForumFrl::NotSupported,
+            dsc_frl_max: true,
+            ffe_levels: FfeLevels::Ffe0,
+        })
+        .unwrap();
+        assert_eq!(scdc.into_transport().get(0x30), 0x10);
+    }
+
+    #[test]
+    fn frl_config_ffe_levels_field() {
+        let mut scdc = Scdc::new(Sim::new());
+        scdc.write_frl_config(FrlConfig {
+            frl_rate: HdmiForumFrl::NotSupported,
+            dsc_frl_max: false,
+            ffe_levels: FfeLevels::Ffe7, // discriminant 7 → bits[7:5] = 0b111 = 0xE0
+        })
+        .unwrap();
+        assert_eq!(scdc.into_transport().get(0x30), 0xE0);
+    }
+
+    // ── Status_Flags ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn status_flags_all_zero() {
+        let mut scdc = Scdc::new(Sim::new());
+        assert_eq!(
+            scdc.read_status_flags().unwrap(),
+            StatusFlags {
+                clock_detected: false,
+                cable_connected: false,
+                ch0_locked: false,
+                ch1_locked: false,
+                ch2_locked: false,
+                ch3_locked: false,
+                flt_ready: false,
+                frl_start: false,
+                ltp_req: LtpReq::None,
+            }
+        );
+    }
+
+    #[test]
+    fn status_flags_ltp_req_variants() {
+        for (nibble, expected) in [
+            (0u8, LtpReq::None),
+            (1, LtpReq::Lfsr0),
+            (2, LtpReq::Lfsr1),
+            (3, LtpReq::Lfsr2),
+            (4, LtpReq::Lfsr3),
+        ] {
+            let mut sim = Sim::new();
+            sim.set(0x41, nibble << 4);
+            let mut scdc = Scdc::new(sim);
+            assert_eq!(scdc.read_status_flags().unwrap().ltp_req, expected);
+        }
+    }
+
+    #[test]
+    fn status_flags_unknown_ltp_req() {
+        for nibble in 5u8..=15 {
+            let mut sim = Sim::new();
+            sim.set(0x41, nibble << 4);
+            let mut scdc = Scdc::new(sim);
+            assert!(matches!(
+                scdc.read_status_flags(),
+                Err(ScdcError::Protocol(ProtocolError::UnknownLtpReq(n))) if n == nibble
+            ));
+        }
+    }
+
+    // ── Update flags ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn update_flags_individual_bits() {
+        // status_update = bit 0 of Update_0
+        let mut sim = Sim::new();
+        sim.set(0x10, 0x01);
+        assert!(Scdc::new(sim).read_update_flags().unwrap().status_update);
+
+        // ced_update = bit 1
+        let mut sim = Sim::new();
+        sim.set(0x10, 0x02);
+        assert!(Scdc::new(sim).read_update_flags().unwrap().ced_update);
+
+        // frl_update = bit 2
+        let mut sim = Sim::new();
+        sim.set(0x10, 0x04);
+        assert!(Scdc::new(sim).read_update_flags().unwrap().frl_update);
+
+        // dsc_update = bit 0 of Update_1
+        let mut sim = Sim::new();
+        sim.set(0x11, 0x01);
+        assert!(Scdc::new(sim).read_update_flags().unwrap().dsc_update);
+    }
+
+    #[test]
+    fn clear_update_flags_w1c() {
+        let mut scdc = Scdc::new(Sim::new());
+        scdc.clear_update_flags(UpdateFlags::new(true, true, true, true)).unwrap();
+        let t = scdc.into_transport();
+        assert_eq!(t.get(0x10), 0x07);
+        assert_eq!(t.get(0x11), 0x01);
+    }
+
+    #[test]
+    fn clear_update_flags_partial() {
+        let mut scdc = Scdc::new(Sim::new());
+        scdc.clear_update_flags(UpdateFlags::new(false, true, false, false)).unwrap();
+        let t = scdc.into_transport();
+        assert_eq!(t.get(0x10), 0x02); // only ced_update bit
+        assert_eq!(t.get(0x11), 0x00);
+    }
+
+    // ── CED ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn ced_validity_bit_required() {
+        // High byte with bit 7 clear → None regardless of counter value.
+        let mut sim = Sim::new();
+        sim.set(0x50, 0xFF);
+        sim.set(0x51, 0x7F); // valid bit clear
+        let ced = Scdc::new(sim).read_ced().unwrap();
+        assert_eq!(ced.lane0, None);
+    }
+
+    #[test]
+    fn ced_counter_validity_bit_stripped() {
+        // High byte: bit 7 set (valid), counter bits = 0x01; low byte = 0x23.
+        let mut sim = Sim::new();
+        sim.set(0x50, 0x23);
+        sim.set(0x51, 0x81);
+        let ced = Scdc::new(sim).read_ced().unwrap();
+        assert_eq!(ced.lane0, Some(CedCount::new(0x0123)));
+    }
+
+    #[test]
+    fn ced_lane3_independent() {
+        let mut sim = Sim::new();
+        sim.set(0x56, 0x01);
+        sim.set(0x57, 0x80); // lane3 valid, count = 1
+        let ced = Scdc::new(sim).read_ced().unwrap();
+        assert_eq!(ced.lane0, None);
+        assert_eq!(ced.lane3.map(|c| c.value()), Some(0x0001));
+    }
+}
