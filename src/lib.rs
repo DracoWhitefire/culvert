@@ -4,7 +4,7 @@
 //! bitfield types, and typed operations for scrambling control, FRL training primitives,
 //! and CED (Character Error Detection) reporting.
 //!
-//! The central type is `Scdc`, a thin stateless client that wraps a transport
+//! The central type is [`Scdc`], a thin stateless client that wraps a transport
 //! and exposes one typed method per register group. Sequencing of register operations —
 //! rate selection, timeout handling, retry logic — belongs in the link training crate
 //! above.
@@ -16,6 +16,7 @@ mod client;
 mod error;
 mod register;
 
+pub use client::Scdc;
 pub use error::{ProtocolError, ScdcError};
 pub use register::{
     CedCount, CedCounters, FfeLevels, FrlConfig, FrlRate, LtpReq, ScramblerStatus, StatusFlags,

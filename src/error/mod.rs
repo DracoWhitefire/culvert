@@ -1,6 +1,6 @@
 //! Error types returned by [`crate::Scdc`] operations.
 
-/// Errors returned by `Scdc` register operations.
+/// Errors returned by [`Scdc`](crate::Scdc) register operations.
 ///
 /// Two categories of failure are distinguished so that callers can handle them
 /// separately: a transport failure means the I²C/DDC bus returned an error; a
