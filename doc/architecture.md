@@ -236,6 +236,7 @@ All output structs are `#[non_exhaustive]` for forward compatibility.
 Culvert surfaces two distinct failure categories:
 
 ```rust
+#[non_exhaustive]
 pub enum ScdcError<E> {
     /// The underlying I²C/DDC transport returned an error.
     Transport(E),
@@ -243,6 +244,7 @@ pub enum ScdcError<E> {
     Protocol(ProtocolError),
 }
 
+#[non_exhaustive]
 pub enum ProtocolError {
     UnknownFrlRate(u8),
     UnknownLtpReq(u8),
@@ -253,8 +255,8 @@ This mirrors the pattern established in piaf: transport failures and protocol vi
 are distinct. A caller that only cares about transport health can match on `Transport(_)`;
 one that wants to diagnose unexpected sink behaviour inspects `Protocol(_)`.
 
-`ScdcError` is `#[non_exhaustive]` at the enum level; `ProtocolError` variants are
-`#[non_exhaustive]` individually to allow new fields without breaking matches.
+Both enums are `#[non_exhaustive]` at the type level, consistent with the rest of the
+stack. Variants are plain — callers can match `UnknownFrlRate(rate)` without `..`.
 
 ---
 
