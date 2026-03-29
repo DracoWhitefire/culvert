@@ -167,3 +167,42 @@ pub struct CedCounters {
     /// Always `None` in TMDS mode or 3-lane FRL mode.
     pub lane3: Option<CedCount>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ced_count_masks_validity_bit() {
+        // The high byte's bit 7 (validity) must not bleed into the value.
+        assert_eq!(CedCount::new(0xFFFF).value(), 0x7FFF);
+        assert_eq!(CedCount::new(0x8000).value(), 0x0000);
+    }
+
+    #[test]
+    fn ced_count_preserves_15_bit_value() {
+        assert_eq!(CedCount::new(0x0000).value(), 0x0000);
+        assert_eq!(CedCount::new(0x0001).value(), 0x0001);
+        assert_eq!(CedCount::new(0x7FFF).value(), 0x7FFF);
+    }
+
+    #[test]
+    fn update_flags_new_field_order() {
+        // Verify each parameter maps to the correct named field.
+        let f = UpdateFlags::new(true, false, false, false);
+        assert!(f.status_update);
+        assert!(!f.ced_update && !f.frl_update && !f.dsc_update);
+
+        let f = UpdateFlags::new(false, true, false, false);
+        assert!(f.ced_update);
+        assert!(!f.status_update && !f.frl_update && !f.dsc_update);
+
+        let f = UpdateFlags::new(false, false, true, false);
+        assert!(f.frl_update);
+        assert!(!f.status_update && !f.ced_update && !f.dsc_update);
+
+        let f = UpdateFlags::new(false, false, false, true);
+        assert!(f.dsc_update);
+        assert!(!f.status_update && !f.ced_update && !f.frl_update);
+    }
+}
