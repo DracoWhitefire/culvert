@@ -124,7 +124,7 @@ impl<T: ScdcTransport> Scdc<T> {
     pub fn read_scrambler_status(&mut self) -> Result<ScramblerStatus, ScdcError<T::Error>>;
 
     // FRL training primitives
-    pub fn write_config(&mut self, config: FrlConfig) -> Result<(), ScdcError<T::Error>>;
+    pub fn write_frl_config(&mut self, config: FrlConfig) -> Result<(), ScdcError<T::Error>>;
     pub fn read_status_flags(&mut self) -> Result<StatusFlags, ScdcError<T::Error>>;
     pub fn read_update_flags(&mut self) -> Result<UpdateFlags, ScdcError<T::Error>>;
     pub fn clear_update_flags(&mut self, flags: UpdateFlags) -> Result<(), ScdcError<T::Error>>;
@@ -260,10 +260,7 @@ one that wants to diagnose unexpected sink behaviour inspects `Protocol(_)`.
 Both enums are `#[non_exhaustive]` at the type level, consistent with the rest of the
 stack. Variants are plain — callers can match `UnknownFrlRate(rate)` without `..`.
 
-`ScdcError` is `#[non_exhaustive]` to allow a third variant to be added in a future
-release without a breaking change — for example, a timeout category if culvert ever
-gains awareness of transport-level retries. The current two variants cover all cases
-in 0.1.0.
+`ScdcError` is `#[non_exhaustive]` to allow future variants without a breaking change.
 
 ---
 
