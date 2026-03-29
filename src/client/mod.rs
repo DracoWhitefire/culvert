@@ -2,8 +2,9 @@
 
 use hdmi_hal::scdc::ScdcTransport;
 
-use crate::error::{ProtocolError, ScdcError};
+use crate::error::ScdcError;
 use crate::register::address;
+use crate::register::{ScramblerStatus, TmdsConfig};
 
 /// Typed client for the HDMI 2.1 SCDC (Status and Control Data Channel) register map.
 ///
@@ -44,5 +45,29 @@ impl<T: ScdcTransport> Scdc<T> {
         self.transport
             .write(address::SOURCE_VERSION, version)
             .map_err(ScdcError::Transport)
+    }
+
+    /// Writes scrambling configuration to `TMDS_Config` (0x20).
+    ///
+    /// Sets `Scrambling_Enable` (bit 0) and `TMDS_Bit_Clock_Ratio` (bit 1).
+    pub fn write_tmds_config(&mut self, config: TmdsConfig) -> Result<(), ScdcError<T::Error>> {
+        let byte = (config.scrambling_enable as u8) | ((config.high_tmds_clock_ratio as u8) << 1);
+        self.transport
+            .write(address::TMDS_CONFIG, byte)
+            .map_err(ScdcError::Transport)
+    }
+
+    /// Reads scrambler acknowledgement from `Scrambler_Status` (0x21).
+    ///
+    /// Returns [`ScramblerStatus::scrambling_active`] set when the sink confirms
+    /// that TMDS scrambling is active (bit 0).
+    pub fn read_scrambler_status(&mut self) -> Result<ScramblerStatus, ScdcError<T::Error>> {
+        let byte = self
+            .transport
+            .read(address::SCRAMBLER_STATUS)
+            .map_err(ScdcError::Transport)?;
+        Ok(ScramblerStatus {
+            scrambling_active: byte & 0x01 != 0,
+        })
     }
 }
