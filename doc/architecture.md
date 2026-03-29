@@ -167,10 +167,32 @@ pub struct ScramblerStatus {
     pub scrambling_active: bool,
 }
 
+/// FFE (Feed-Forward Equalization) level count written into Config_0 bits[5:3].
+pub enum FfeLevels {
+    Ffe0 = 0,
+    Ffe1 = 1,
+    Ffe2 = 2,
+    Ffe3 = 3,
+    Ffe4 = 4,
+    Ffe5 = 5,
+    Ffe6 = 6,
+    Ffe7 = 7,
+}
+
 pub struct FrlConfig {
     pub frl_rate: HdmiForumFrl,   // from display-types
     pub dsc_frl_max: bool,
-    pub ffe_levels: u8,           // 3-bit field, values 0–7
+    pub ffe_levels: FfeLevels,
+}
+
+/// Link Training Pattern requested by the sink via Status_Flags_1 bits[7:4].
+/// An undefined nibble value surfaces as `ProtocolError::UnknownLtpReq`.
+pub enum LtpReq {
+    None  = 0,   // no LTP requested
+    Lfsr0 = 1,
+    Lfsr1 = 2,
+    Lfsr2 = 3,
+    Lfsr3 = 4,
 }
 
 pub struct StatusFlags {
@@ -182,7 +204,7 @@ pub struct StatusFlags {
     pub ch3_locked: bool,   // FRL 4-lane only
     pub flt_ready: bool,
     pub frl_start: bool,    // sink signals FRL training may begin
-    pub ltp_req: u8,        // link training pattern request from sink
+    pub ltp_req: LtpReq,
 }
 
 pub struct UpdateFlags {
@@ -223,7 +245,7 @@ pub enum ScdcError<E> {
 
 pub enum ProtocolError {
     UnknownFrlRate(u8),
-    // further variants as the implementation surfaces them
+    UnknownLtpReq(u8),
 }
 ```
 
