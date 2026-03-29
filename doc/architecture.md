@@ -192,11 +192,16 @@ pub struct UpdateFlags {
     pub dsc_update: bool,   // Update_1 (0x11) bit 0
 }
 
+/// A 15-bit character error count decoded from an ERR_DET register pair.
+/// The high byte's bit 7 is the validity flag; the counter occupies bits[14:0].
+/// `CedCount::value()` returns the raw count as a `u16` (always <= 0x7FFF).
+pub struct CedCount(u16);
+
 pub struct CedCounters {
-    pub lane0: Option<u16>,   // None if validity bit not set
-    pub lane1: Option<u16>,
-    pub lane2: Option<u16>,
-    pub lane3: Option<u16>,   // None in TMDS / 3-lane FRL mode
+    pub lane0: Option<CedCount>,   // None if validity bit not set
+    pub lane1: Option<CedCount>,
+    pub lane2: Option<CedCount>,
+    pub lane3: Option<CedCount>,   // None in TMDS / 3-lane FRL mode
 }
 ```
 
