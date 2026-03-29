@@ -15,3 +15,5 @@
 mod client;
 mod error;
 mod register;
+
+pub use error::{ProtocolError, ScdcError};
