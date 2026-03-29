@@ -17,3 +17,7 @@ mod error;
 mod register;
 
 pub use error::{ProtocolError, ScdcError};
+pub use register::{
+    CedCount, CedCounters, FfeLevels, FrlConfig, FrlRate, LtpReq, ScramblerStatus, StatusFlags,
+    TmdsConfig, UpdateFlags,
+};
