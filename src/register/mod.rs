@@ -103,6 +103,9 @@ pub struct StatusFlags {
 ///
 /// Flags are set by the sink to notify the source of state changes. The source
 /// reads and then clears them via [`Scdc::clear_update_flags`](crate::Scdc::clear_update_flags).
+///
+/// Because this type is both returned by `read_update_flags` and accepted by
+/// `clear_update_flags`, use [`UpdateFlags::new`] to construct it.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UpdateFlags {
@@ -114,6 +117,18 @@ pub struct UpdateFlags {
     pub status_update: bool,
     /// DSC status has changed (`Update_1` bit 0).
     pub dsc_update: bool,
+}
+
+impl UpdateFlags {
+    /// Constructs an `UpdateFlags` value.
+    pub fn new(status_update: bool, ced_update: bool, frl_update: bool, dsc_update: bool) -> Self {
+        Self {
+            status_update,
+            ced_update,
+            frl_update,
+            dsc_update,
+        }
+    }
 }
 
 /// A 15-bit character error count decoded from an ERR_DET register pair.
