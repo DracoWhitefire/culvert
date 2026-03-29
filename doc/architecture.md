@@ -135,6 +135,20 @@ impl<T: ScdcTransport> Scdc<T> {
 `Scdc<T>` holds no state beyond the transport. Register reads and writes are direct and
 stateless from the client's perspective; any sequencing state lives in the caller.
 
+Methods map to register groups, not necessarily individual registers. Two methods span
+multiple registers in a single logical operation:
+
+- `read_status_flags()` reads both `Status_Flags_0` (0x40) and `Status_Flags_1` (0x41)
+  and merges them into one `StatusFlags` struct. The two registers form one logical unit —
+  splitting them across two calls would force the caller to reason about a combined value
+  that the spec treats as atomic.
+- `read_ced()` reads the four ERR_DET low/high byte pairs (0x50–0x57) in a single pass
+  and returns one `CedCounters` struct.
+
+In both cases the method performs a contiguous sequential read with no intervening writes
+or protocol state changes. This is distinct from the multi-step sequences (write rate,
+poll for ready, handle pattern request) that belong in the link training crate.
+
 ---
 
 
@@ -292,9 +306,11 @@ yet wrapped, so the full map is in one place.
 
 ### 4. `Scdc<T>` client
 
-Implement the client struct in `src/client.rs`. Each method is a read or write of one
-register group: deserialise bytes into the typed struct on read, serialise on write.
-Keep methods focused — no multi-register sequences, no loops, no timing.
+Implement the client struct in `src/client.rs`. Each method maps to one register group:
+deserialise bytes into the typed struct on read, serialise on write. Some groups span
+two registers (`Status_Flags_0`/`Status_Flags_1`, ERR_DET pairs); these are read
+contiguously. No method performs multi-step sequences across distinct register groups,
+loops, or timing.
 
 ### 5. Roadmap
 
