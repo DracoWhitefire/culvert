@@ -75,7 +75,7 @@ The register map divides into four functional groups:
 - `Update_0` (0x10, R/W) — change notification flags: `FRL_Update`, `CED_Update`,
   `Status_Update`. The source reads and then clears these to detect sink-side state
   changes without polling every status register on every pass.
-- `Update_1` (0x11, R/W) — additional update flags.
+- `Update_1` (0x11, R/W) — `DSC_Update` (bit 0): DSC status has changed.
 
 **TMDS and scrambling** (0x20–0x21)
 - `TMDS_Config` (0x20, W) — `Scrambling_Enable` and `TMDS_Bit_Clock_Ratio`.
@@ -142,6 +142,9 @@ multiple registers in a single logical operation:
   and merges them into one `StatusFlags` struct. The two registers form one logical unit —
   splitting them across two calls would force the caller to reason about a combined value
   that the spec treats as atomic.
+- `read_update_flags()` and `clear_update_flags()` both operate on `Update_0` (0x10) and
+  `Update_1` (0x11), returning and writing the full `UpdateFlags` struct. A caller polling
+  for any update should not need two calls to see all flags.
 - `read_ced()` reads the four ERR_DET low/high byte pairs (0x50–0x57) in a single pass
   and returns one `CedCounters` struct.
 
@@ -186,6 +189,7 @@ pub struct UpdateFlags {
     pub frl_update: bool,
     pub ced_update: bool,
     pub status_update: bool,
+    pub dsc_update: bool,   // Update_1 (0x11) bit 0
 }
 
 pub struct CedCounters {
