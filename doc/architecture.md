@@ -164,6 +164,7 @@ pub struct StatusFlags {
     pub ch2_locked: bool,
     pub ch3_locked: bool,   // FRL 4-lane only
     pub flt_ready: bool,
+    pub frl_start: bool,    // sink signals FRL training may begin
     pub ltp_req: u8,        // link training pattern request from sink
 }
 
