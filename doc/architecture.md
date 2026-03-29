@@ -36,6 +36,8 @@ Culvert covers:
 
 The following are out of scope:
 
+- **Async API** — an async variant of the SCDC client will live in a separate
+  `culvert-async` crate with its own feature flags. Culvert carries no async surface.
 - **Link training state machine** — the sequencing of FRL training (rate selection loop,
   timeout handling, retry logic, fallback to TMDS) belongs in the link training crate.
   Culvert provides the register operations; the state machine decides when to call them.
@@ -355,7 +357,9 @@ listed there.
 - Fill in `Cargo.toml` metadata.
 - Write a minimal `README.md`.
 - Publish to crates.io.
-- Publish a stub for `culvert-async` to claim the name if it is available.
+- Publish a stub for `culvert-async` to claim the name. `culvert-async` will be a
+  separate crate with its own feature flags; culvert itself carries no async surface
+  and no async feature flags.
 
 ### 7. Example: `examples/scdc`
 
