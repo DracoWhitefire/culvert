@@ -260,6 +260,11 @@ one that wants to diagnose unexpected sink behaviour inspects `Protocol(_)`.
 Both enums are `#[non_exhaustive]` at the type level, consistent with the rest of the
 stack. Variants are plain — callers can match `UnknownFrlRate(rate)` without `..`.
 
+`ScdcError` is `#[non_exhaustive]` to allow a third variant to be added in a future
+release without a breaking change — for example, a timeout category if culvert ever
+gains awareness of transport-level retries. The current two variants cover all cases
+in 0.1.0.
+
 ---
 
 ## The Culvert / Link Training Boundary
