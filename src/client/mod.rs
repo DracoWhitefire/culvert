@@ -210,20 +210,30 @@ impl<T: ScdcTransport> Scdc<T> {
 
 #[cfg(test)]
 mod tests {
-    use core::convert::Infallible;
     use display_types::HdmiForumFrl;
 
     use super::*;
     use crate::error::ProtocolError;
     use crate::register::{CedCount, FfeLevels, FrlConfig, LtpReq, ScramblerStatus, StatusFlags};
 
-    struct Sim {
+    /// Single test transport used for all unit tests.
+    ///
+    /// Succeeds for the first `fail_after` operations then returns `Err(())`.
+    /// Use `TestTransport::new()` for happy-path tests (`fail_after = usize::MAX`)
+    /// and `TestTransport::failing_after(n)` to exercise error branches.
+    struct TestTransport {
         regs: [u8; 256],
+        fail_after: usize,
+        ops: usize,
     }
 
-    impl Sim {
+    impl TestTransport {
         fn new() -> Self {
-            Self { regs: [0u8; 256] }
+            Self { regs: [0u8; 256], fail_after: usize::MAX, ops: 0 }
+        }
+
+        fn failing_after(n: usize) -> Self {
+            Self { regs: [0u8; 256], fail_after: n, ops: 0 }
         }
 
         fn set(&mut self, addr: u8, val: u8) {
@@ -235,14 +245,18 @@ mod tests {
         }
     }
 
-    impl ScdcTransport for Sim {
-        type Error = Infallible;
+    impl ScdcTransport for TestTransport {
+        type Error = ();
 
-        fn read(&mut self, reg: u8) -> Result<u8, Infallible> {
+        fn read(&mut self, reg: u8) -> Result<u8, ()> {
+            if self.ops >= self.fail_after { return Err(()); }
+            self.ops += 1;
             Ok(self.regs[reg as usize])
         }
 
-        fn write(&mut self, reg: u8, value: u8) -> Result<(), Infallible> {
+        fn write(&mut self, reg: u8, value: u8) -> Result<(), ()> {
+            if self.ops >= self.fail_after { return Err(()); }
+            self.ops += 1;
             self.regs[reg as usize] = value;
             Ok(())
         }
@@ -252,14 +266,14 @@ mod tests {
 
     #[test]
     fn read_sink_version_returns_register_value() {
-        let mut sim = Sim::new();
+        let mut sim = TestTransport::new();
         sim.set(0x01, 0x01);
         assert_eq!(Scdc::new(sim).read_sink_version().unwrap(), 0x01);
     }
 
     #[test]
     fn write_source_version_writes_register() {
-        let mut scdc = Scdc::new(Sim::new());
+        let mut scdc = Scdc::new(TestTransport::new());
         scdc.write_source_version(0x01).unwrap();
         assert_eq!(scdc.into_transport().get(0x02), 0x01);
     }
@@ -268,7 +282,7 @@ mod tests {
 
     #[test]
     fn tmds_config_scrambling_only() {
-        let mut scdc = Scdc::new(Sim::new());
+        let mut scdc = Scdc::new(TestTransport::new());
         scdc.write_tmds_config(TmdsConfig { scrambling_enable: true, high_tmds_clock_ratio: false })
             .unwrap();
         assert_eq!(scdc.into_transport().get(0x20), 0x01);
@@ -276,7 +290,7 @@ mod tests {
 
     #[test]
     fn tmds_config_clock_ratio_only() {
-        let mut scdc = Scdc::new(Sim::new());
+        let mut scdc = Scdc::new(TestTransport::new());
         scdc.write_tmds_config(TmdsConfig { scrambling_enable: false, high_tmds_clock_ratio: true })
             .unwrap();
         assert_eq!(scdc.into_transport().get(0x20), 0x02);
@@ -284,7 +298,7 @@ mod tests {
 
     #[test]
     fn tmds_config_both_clear() {
-        let mut scdc = Scdc::new(Sim::new());
+        let mut scdc = Scdc::new(TestTransport::new());
         scdc.write_tmds_config(TmdsConfig { scrambling_enable: false, high_tmds_clock_ratio: false })
             .unwrap();
         assert_eq!(scdc.into_transport().get(0x20), 0x00);
@@ -294,7 +308,7 @@ mod tests {
 
     #[test]
     fn scrambler_status_bit0_set() {
-        let mut sim = Sim::new();
+        let mut sim = TestTransport::new();
         sim.set(0x21, 0xFF); // all bits set; only bit 0 is defined
         let mut scdc = Scdc::new(sim);
         assert_eq!(
@@ -305,7 +319,7 @@ mod tests {
 
     #[test]
     fn scrambler_status_bit0_clear() {
-        let mut sim = Sim::new();
+        let mut sim = TestTransport::new();
         sim.set(0x21, 0xFE); // bit 0 clear, other bits set (reserved)
         let mut scdc = Scdc::new(sim);
         assert_eq!(
@@ -318,7 +332,7 @@ mod tests {
 
     #[test]
     fn frl_config_rate_field() {
-        let mut scdc = Scdc::new(Sim::new());
+        let mut scdc = Scdc::new(TestTransport::new());
         scdc.write_frl_config(FrlConfig {
             frl_rate: HdmiForumFrl::Rate12Gbps4Lanes, // discriminant 6
             dsc_frl_max: false,
@@ -330,7 +344,7 @@ mod tests {
 
     #[test]
     fn frl_config_dsc_frl_max_field() {
-        let mut scdc = Scdc::new(Sim::new());
+        let mut scdc = Scdc::new(TestTransport::new());
         scdc.write_frl_config(FrlConfig {
             frl_rate: HdmiForumFrl::NotSupported,
             dsc_frl_max: true,
@@ -342,7 +356,7 @@ mod tests {
 
     #[test]
     fn frl_config_ffe_levels_field() {
-        let mut scdc = Scdc::new(Sim::new());
+        let mut scdc = Scdc::new(TestTransport::new());
         scdc.write_frl_config(FrlConfig {
             frl_rate: HdmiForumFrl::NotSupported,
             dsc_frl_max: false,
@@ -356,7 +370,7 @@ mod tests {
 
     #[test]
     fn status_flags_all_zero() {
-        let mut scdc = Scdc::new(Sim::new());
+        let mut scdc = Scdc::new(TestTransport::new());
         assert_eq!(
             scdc.read_status_flags().unwrap(),
             StatusFlags {
@@ -382,7 +396,7 @@ mod tests {
             (3, LtpReq::Lfsr2),
             (4, LtpReq::Lfsr3),
         ] {
-            let mut sim = Sim::new();
+            let mut sim = TestTransport::new();
             sim.set(0x41, nibble << 4);
             let mut scdc = Scdc::new(sim);
             assert_eq!(scdc.read_status_flags().unwrap().ltp_req, expected);
@@ -392,7 +406,7 @@ mod tests {
     #[test]
     fn status_flags_unknown_ltp_req() {
         for nibble in 5u8..=15 {
-            let mut sim = Sim::new();
+            let mut sim = TestTransport::new();
             sim.set(0x41, nibble << 4);
             let mut scdc = Scdc::new(sim);
             assert!(matches!(
@@ -407,29 +421,29 @@ mod tests {
     #[test]
     fn update_flags_individual_bits() {
         // status_update = bit 0 of Update_0
-        let mut sim = Sim::new();
+        let mut sim = TestTransport::new();
         sim.set(0x10, 0x01);
         assert!(Scdc::new(sim).read_update_flags().unwrap().status_update);
 
         // ced_update = bit 1
-        let mut sim = Sim::new();
+        let mut sim = TestTransport::new();
         sim.set(0x10, 0x02);
         assert!(Scdc::new(sim).read_update_flags().unwrap().ced_update);
 
         // frl_update = bit 2
-        let mut sim = Sim::new();
+        let mut sim = TestTransport::new();
         sim.set(0x10, 0x04);
         assert!(Scdc::new(sim).read_update_flags().unwrap().frl_update);
 
         // dsc_update = bit 0 of Update_1
-        let mut sim = Sim::new();
+        let mut sim = TestTransport::new();
         sim.set(0x11, 0x01);
         assert!(Scdc::new(sim).read_update_flags().unwrap().dsc_update);
     }
 
     #[test]
     fn clear_update_flags_w1c() {
-        let mut scdc = Scdc::new(Sim::new());
+        let mut scdc = Scdc::new(TestTransport::new());
         scdc.clear_update_flags(UpdateFlags::new(true, true, true, true)).unwrap();
         let t = scdc.into_transport();
         assert_eq!(t.get(0x10), 0x07);
@@ -438,7 +452,7 @@ mod tests {
 
     #[test]
     fn clear_update_flags_partial() {
-        let mut scdc = Scdc::new(Sim::new());
+        let mut scdc = Scdc::new(TestTransport::new());
         scdc.clear_update_flags(UpdateFlags::new(false, true, false, false)).unwrap();
         let t = scdc.into_transport();
         assert_eq!(t.get(0x10), 0x02); // only ced_update bit
@@ -450,7 +464,7 @@ mod tests {
     #[test]
     fn ced_validity_bit_required() {
         // High byte with bit 7 clear → None regardless of counter value.
-        let mut sim = Sim::new();
+        let mut sim = TestTransport::new();
         sim.set(0x50, 0xFF);
         sim.set(0x51, 0x7F); // valid bit clear
         let ced = Scdc::new(sim).read_ced().unwrap();
@@ -460,7 +474,7 @@ mod tests {
     #[test]
     fn ced_counter_validity_bit_stripped() {
         // High byte: bit 7 set (valid), counter bits = 0x01; low byte = 0x23.
-        let mut sim = Sim::new();
+        let mut sim = TestTransport::new();
         sim.set(0x50, 0x23);
         sim.set(0x51, 0x81);
         let ced = Scdc::new(sim).read_ced().unwrap();
@@ -469,11 +483,78 @@ mod tests {
 
     #[test]
     fn ced_lane3_independent() {
-        let mut sim = Sim::new();
+        let mut sim = TestTransport::new();
         sim.set(0x56, 0x01);
         sim.set(0x57, 0x80); // lane3 valid, count = 1
         let ced = Scdc::new(sim).read_ced().unwrap();
         assert_eq!(ced.lane0, None);
         assert_eq!(ced.lane3.map(|c| c.value()), Some(0x0001));
+    }
+
+    // ── Transport error propagation ───────────────────────────────────────────
+
+    #[test]
+    fn status_flags_all_flags0_bits_set() {
+        // Ensures the true-branch of every flags0 bit expression is exercised.
+        let mut sim = TestTransport::new();
+        sim.set(0x40, 0x7F); // clock_detected | cable_connected | ch0–ch3_locked | flt_ready
+        sim.set(0x41, 0x01); // frl_start
+        let f = Scdc::new(sim).read_status_flags().unwrap();
+        assert!(f.clock_detected && f.cable_connected);
+        assert!(f.ch0_locked && f.ch1_locked && f.ch2_locked && f.ch3_locked);
+        assert!(f.flt_ready && f.frl_start);
+        assert_eq!(f.ltp_req, LtpReq::None);
+    }
+
+    #[test]
+    fn transport_errors_wrapped_single_operation_methods() {
+        assert!(Scdc::new(TestTransport::failing_after(0)).read_sink_version().is_err());
+        assert!(Scdc::new(TestTransport::failing_after(0)).write_source_version(1).is_err());
+        assert!(Scdc::new(TestTransport::failing_after(0))
+            .write_tmds_config(TmdsConfig { scrambling_enable: false, high_tmds_clock_ratio: false })
+            .is_err());
+        assert!(Scdc::new(TestTransport::failing_after(0)).read_scrambler_status().is_err());
+        assert!(Scdc::new(TestTransport::failing_after(0))
+            .write_frl_config(FrlConfig {
+                frl_rate: HdmiForumFrl::NotSupported,
+                dsc_frl_max: false,
+                ffe_levels: FfeLevels::Ffe0,
+            })
+            .is_err());
+    }
+
+    #[test]
+    fn transport_error_on_first_read_of_multi_read_methods() {
+        assert!(Scdc::new(TestTransport::failing_after(0)).read_status_flags().is_err());
+        assert!(Scdc::new(TestTransport::failing_after(0)).read_update_flags().is_err());
+        assert!(Scdc::new(TestTransport::failing_after(0)).read_ced().is_err());
+    }
+
+    #[test]
+    fn transport_error_on_second_read_of_status_flags() {
+        // First read (Status_Flags_0) succeeds; second (Status_Flags_1) fails.
+        assert!(Scdc::new(TestTransport::failing_after(1)).read_status_flags().is_err());
+    }
+
+    #[test]
+    fn transport_error_on_second_read_of_update_flags() {
+        assert!(Scdc::new(TestTransport::failing_after(1)).read_update_flags().is_err());
+    }
+
+    #[test]
+    fn transport_error_on_either_write_of_clear_update_flags() {
+        assert!(Scdc::new(TestTransport::failing_after(0))
+            .clear_update_flags(UpdateFlags::new(false, false, false, false))
+            .is_err());
+        assert!(Scdc::new(TestTransport::failing_after(1))
+            .clear_update_flags(UpdateFlags::new(false, false, false, false))
+            .is_err());
+    }
+
+    #[test]
+    fn transport_error_on_any_read_of_ced() {
+        for n in 0..8 {
+            assert!(Scdc::new(TestTransport::failing_after(n)).read_ced().is_err());
+        }
     }
 }
