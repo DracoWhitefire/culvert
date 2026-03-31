@@ -284,6 +284,31 @@ belongs in culvert.
 
 ---
 
+## The `plumbob` Feature
+
+culvert implements `plumbob::ScdcClient` for `Scdc<T>`, gated behind a `plumbob` cargo
+feature. This follows the same convention as `serde` feature flags in the ecosystem: the
+producing crate reaches toward the consuming crate's trait, rather than the consumer
+depending on the producer.
+
+```toml
+# Cargo.toml of a crate using both
+culvert  = { version = "0.1", features = ["plumbob"] }
+plumbob  = "0.1"
+```
+
+The impl converts between culvert's internal types and plumbob's owned types:
+
+- `culvert::StatusFlags` → `plumbob::TrainingStatus` (projecting `frl_start` and `ltp_req`)
+- `culvert::FrlConfig` ← `plumbob::FrlConfig` (field-for-field, with `LtpReq` conversion)
+- `culvert::CedCounters` → `plumbob::CedCounters` (same structure, different type paths)
+
+culvert's richer `StatusFlags` (lane lock bits, cable detection, clock detection) is not
+exposed through `ScdcClient` — plumbob defines only what the training state machine
+needs. Callers that need the full register set use `Scdc<T>` directly.
+
+---
+
 ## `no_std` Compatibility
 
 Culvert requires no allocator. All output types are stack-allocated structs. The
