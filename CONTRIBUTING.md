@@ -40,8 +40,9 @@ is fine.
 - Tests are expected for new register coverage. Pre-loading a `TestTransport` and
   asserting on the decoded struct is the established pattern; see the existing `client`
   modules for examples.
-- CI must be green before a PR can merge: fmt, clippy, docs, and all test and build
-  targets.
+- CI must be green before a PR can merge: fmt, clippy, docs, all test and build targets,
+  and coverage must not drop more than 0.1% below the baseline (stored in
+  `.coverage-baseline`). New register coverage without tests will likely trip this.
 
 ## Review process
 
