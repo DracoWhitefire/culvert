@@ -20,7 +20,17 @@ pub enum ScdcError<E> {
 #[derive(Debug)]
 pub enum ProtocolError {
     /// The sink reported an FRL rate value not defined by the HDMI 2.1 specification.
+    ///
+    /// The inner value is the raw 4-bit field read directly from the SCDC register. It is
+    /// exposed so callers can log or diagnose misbehaving sinks, not because it carries
+    /// semantic meaning — any value outside the spec-defined set is treated as a protocol
+    /// violation regardless of its numeric value.
     UnknownFrlRate(u8),
     /// The sink reported an LTP request value not defined by the HDMI 2.1 specification.
+    ///
+    /// The inner value is the raw 4-bit field read directly from the SCDC register. It is
+    /// exposed so callers can log or diagnose misbehaving sinks, not because it carries
+    /// semantic meaning — any value outside the spec-defined set is treated as a protocol
+    /// violation regardless of its numeric value.
     UnknownLtpReq(u8),
 }
