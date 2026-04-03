@@ -2,6 +2,16 @@
 name = "culvert"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+description = "Typed access to the HDMI 2.1 SCDC register map"
+readme = "README.md"
+license = "MPL-2.0"
+repository = "https://github.com/DracoWhitefire/culvert"
+keywords = ["hdmi", "scdc", "frl", "embedded", "no-std"]
+categories = ["hardware-support", "embedded", "no-std"]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 plumbob = ["dep:plumbob"]
