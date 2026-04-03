@@ -129,6 +129,8 @@ implements `ScdcClient` is substitutable.
 
 ## Documentation
 
+- [`doc/setup.md`](doc/setup.md) — build, test, and coverage commands
+- [`doc/testing.md`](doc/testing.md) — testing strategy, transport harness, and CI expectations
 - [`doc/architecture.md`](doc/architecture.md) — role, scope, register map, type
   reference, design principles, and the culvert / link training boundary
 - [`doc/roadmap.md`](doc/roadmap.md) — SCDC registers deferred to future releases
