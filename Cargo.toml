@@ -3,9 +3,13 @@ name = "culvert"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+plumbob = ["dep:plumbob"]
+
 [dependencies]
 display-types = { path = "../display-types", default-features = false }
 hdmi-hal = { path = "../hdmi-hal" }
+plumbob = { path = "../plumbob", optional = true }
 
 [dev-dependencies]
 hdmi-hal = { path = "../hdmi-hal" }

@@ -4,6 +4,8 @@ use hdmi_hal::scdc::ScdcTransport;
 
 mod ced;
 mod frl;
+#[cfg(feature = "plumbob")]
+mod plumbob_client;
 mod scrambling;
 mod update;
 mod version;

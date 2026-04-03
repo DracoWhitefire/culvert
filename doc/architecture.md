@@ -324,6 +324,11 @@ The full API is available in bare `no_std` environments.
 - **Typed access, not raw bytes.** Every register read returns a named struct, not a raw
   `u8`. Every register write takes a typed config, not a bit pattern. Culvert is the
   translation layer between the wire format and the rest of the stack.
+- **Interface owned by the consumer.** The `ScdcClient` trait that culvert implements is
+  defined in `plumbob`, not here. culvert implements the trait; it does not define it.
+  This means the link training layer can swap culvert for any other `ScdcClient`
+  implementation without touching culvert. The `plumbob` cargo feature gates the impl
+  so culvert remains independently usable without the link training layer as a dependency.
 - **Spec accuracy and completeness.** All SCDC-defined registers are implemented. No
   register is omitted because its consumer has not been built yet. What is needed for
   0.1.0 ships in 0.1.0; the rest is tracked on the roadmap.
