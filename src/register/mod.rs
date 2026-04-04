@@ -24,6 +24,13 @@ pub struct ScramblerStatus {
     pub scrambling_active: bool,
 }
 
+impl ScramblerStatus {
+    /// Constructs a `ScramblerStatus`.
+    pub fn new(scrambling_active: bool) -> Self {
+        Self { scrambling_active }
+    }
+}
+
 /// FFE (Feed-Forward Equalization) level count written into `Config_0` bits\[5:3\].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FfeLevels {
@@ -184,6 +191,12 @@ mod tests {
         assert_eq!(CedCount::new(0x0000).value(), 0x0000);
         assert_eq!(CedCount::new(0x0001).value(), 0x0001);
         assert_eq!(CedCount::new(0x7FFF).value(), 0x7FFF);
+    }
+
+    #[test]
+    fn scrambler_status_new() {
+        assert!(ScramblerStatus::new(true).scrambling_active);
+        assert!(!ScramblerStatus::new(false).scrambling_active);
     }
 
     #[test]
