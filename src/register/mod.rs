@@ -211,7 +211,12 @@ impl CedCounters {
         lane2: Option<CedCount>,
         lane3: Option<CedCount>,
     ) -> Self {
-        Self { lane0, lane1, lane2, lane3 }
+        Self {
+            lane0,
+            lane1,
+            lane2,
+            lane3,
+        }
     }
 }
 
@@ -394,7 +399,12 @@ mod tests {
 
     #[test]
     fn ced_counters_new_lane3_none() {
-        let counters = CedCounters::new(Some(CedCount::new(0)), Some(CedCount::new(0)), Some(CedCount::new(0)), None);
+        let counters = CedCounters::new(
+            Some(CedCount::new(0)),
+            Some(CedCount::new(0)),
+            Some(CedCount::new(0)),
+            None,
+        );
         assert!(counters.lane3.is_none());
     }
 
