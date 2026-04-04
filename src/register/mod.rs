@@ -203,6 +203,18 @@ pub struct CedCounters {
     pub lane3: Option<CedCount>,
 }
 
+impl CedCounters {
+    /// Constructs a `CedCounters`.
+    pub fn new(
+        lane0: Option<CedCount>,
+        lane1: Option<CedCount>,
+        lane2: Option<CedCount>,
+        lane3: Option<CedCount>,
+    ) -> Self {
+        Self { lane0, lane1, lane2, lane3 }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -365,6 +377,25 @@ mod tests {
             .ltp_req,
             LtpReq::Lfsr2
         );
+    }
+
+    #[test]
+    fn ced_counters_new_field_order() {
+        let a = CedCount::new(1);
+        let b = CedCount::new(2);
+        let c = CedCount::new(3);
+        let d = CedCount::new(4);
+        let counters = CedCounters::new(Some(a), Some(b), Some(c), Some(d));
+        assert_eq!(counters.lane0.unwrap().value(), 1);
+        assert_eq!(counters.lane1.unwrap().value(), 2);
+        assert_eq!(counters.lane2.unwrap().value(), 3);
+        assert_eq!(counters.lane3.unwrap().value(), 4);
+    }
+
+    #[test]
+    fn ced_counters_new_lane3_none() {
+        let counters = CedCounters::new(Some(CedCount::new(0)), Some(CedCount::new(0)), Some(CedCount::new(0)), None);
+        assert!(counters.lane3.is_none());
     }
 
     #[test]
