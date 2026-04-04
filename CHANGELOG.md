@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-04-04
+
+### Added
+
+- `ScramblerStatus::new(scrambling_active: bool)` — constructor required by `culvert-async`,
+  which decodes the register and constructs this type outside the crate.
+- `StatusFlags::new(...)` — constructor required by `culvert-async` for the same reason.
+- `CedCounters::new(lane0, lane1, lane2, lane3)` — constructor required by `culvert-async`.
+- `CedCount::new` is now `pub` (was `pub(crate)`); `culvert-async` needs to construct
+  `CedCount` values when decoding `ERR_DET` registers.
+
 ## [0.1.0] - 2026-04-03
 
 ### Added
