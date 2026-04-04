@@ -10,7 +10,7 @@ checksum = "843867be96c8daad0d758b57df9392b6d8d271134fce549de6ce169ff98a92af"
 
 [[package]]
 name = "culvert"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "display-types",
  "hdmi-hal 0.2.0",
@@ -46,9 +46,9 @@ dependencies = [
 
 [[package]]
 name = "plumbob"
-version = "0.1.0"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c254155468623f5225cf083faca676db8722d301048f1e9c0f64866127e117fb"
+checksum = "50b93b044d41b6df02bc7cb4aff38234b94f7e18621217bad863417bef843d64"
 dependencies = [
  "display-types",
  "hdmi-hal 0.3.0",
