@@ -106,6 +106,34 @@ pub struct StatusFlags {
     pub ltp_req: LtpReq,
 }
 
+impl StatusFlags {
+    /// Constructs a `StatusFlags`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        clock_detected: bool,
+        cable_connected: bool,
+        ch0_locked: bool,
+        ch1_locked: bool,
+        ch2_locked: bool,
+        ch3_locked: bool,
+        flt_ready: bool,
+        frl_start: bool,
+        ltp_req: LtpReq,
+    ) -> Self {
+        Self {
+            clock_detected,
+            cable_connected,
+            ch0_locked,
+            ch1_locked,
+            ch2_locked,
+            ch3_locked,
+            flt_ready,
+            frl_start,
+            ltp_req,
+        }
+    }
+}
+
 /// Decoded content of `Update_0` (0x10) and `Update_1` (0x11).
 ///
 /// Flags are set by the sink to notify the source of state changes. The source
@@ -191,6 +219,152 @@ mod tests {
         assert_eq!(CedCount::new(0x0000).value(), 0x0000);
         assert_eq!(CedCount::new(0x0001).value(), 0x0001);
         assert_eq!(CedCount::new(0x7FFF).value(), 0x7FFF);
+    }
+
+    fn status_flags_all_false() -> StatusFlags {
+        StatusFlags::new(
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            LtpReq::None,
+        )
+    }
+
+    #[test]
+    fn status_flags_new_field_order() {
+        assert!(
+            StatusFlags::new(
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                LtpReq::None
+            )
+            .clock_detected
+        );
+        assert!(
+            StatusFlags::new(
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                LtpReq::None
+            )
+            .cable_connected
+        );
+        assert!(
+            StatusFlags::new(
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                LtpReq::None
+            )
+            .ch0_locked
+        );
+        assert!(
+            StatusFlags::new(
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                LtpReq::None
+            )
+            .ch1_locked
+        );
+        assert!(
+            StatusFlags::new(
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                LtpReq::None
+            )
+            .ch2_locked
+        );
+        assert!(
+            StatusFlags::new(
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                LtpReq::None
+            )
+            .ch3_locked
+        );
+        assert!(
+            StatusFlags::new(
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                LtpReq::None
+            )
+            .flt_ready
+        );
+        assert!(
+            StatusFlags::new(
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                LtpReq::None
+            )
+            .frl_start
+        );
+        assert_eq!(status_flags_all_false().ltp_req, LtpReq::None);
+        assert_eq!(
+            StatusFlags::new(
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                LtpReq::Lfsr2
+            )
+            .ltp_req,
+            LtpReq::Lfsr2
+        );
     }
 
     #[test]
