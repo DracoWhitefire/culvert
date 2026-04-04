@@ -24,6 +24,13 @@ pub struct ScramblerStatus {
     pub scrambling_active: bool,
 }
 
+impl ScramblerStatus {
+    /// Constructs a `ScramblerStatus`.
+    pub fn new(scrambling_active: bool) -> Self {
+        Self { scrambling_active }
+    }
+}
+
 /// FFE (Feed-Forward Equalization) level count written into `Config_0` bits\[5:3\].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FfeLevels {
@@ -99,6 +106,34 @@ pub struct StatusFlags {
     pub ltp_req: LtpReq,
 }
 
+impl StatusFlags {
+    /// Constructs a `StatusFlags`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        clock_detected: bool,
+        cable_connected: bool,
+        ch0_locked: bool,
+        ch1_locked: bool,
+        ch2_locked: bool,
+        ch3_locked: bool,
+        flt_ready: bool,
+        frl_start: bool,
+        ltp_req: LtpReq,
+    ) -> Self {
+        Self {
+            clock_detected,
+            cable_connected,
+            ch0_locked,
+            ch1_locked,
+            ch2_locked,
+            ch3_locked,
+            flt_ready,
+            frl_start,
+            ltp_req,
+        }
+    }
+}
+
 /// Decoded content of `Update_0` (0x10) and `Update_1` (0x11).
 ///
 /// Flags are set by the sink to notify the source of state changes. The source
@@ -140,7 +175,7 @@ pub struct CedCount(u16);
 
 impl CedCount {
     /// Constructs a `CedCount`, masking to 15 bits.
-    pub(crate) fn new(raw: u16) -> Self {
+    pub fn new(raw: u16) -> Self {
         Self(raw & 0x7FFF)
     }
 
@@ -168,6 +203,23 @@ pub struct CedCounters {
     pub lane3: Option<CedCount>,
 }
 
+impl CedCounters {
+    /// Constructs a `CedCounters`.
+    pub fn new(
+        lane0: Option<CedCount>,
+        lane1: Option<CedCount>,
+        lane2: Option<CedCount>,
+        lane3: Option<CedCount>,
+    ) -> Self {
+        Self {
+            lane0,
+            lane1,
+            lane2,
+            lane3,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,6 +236,182 @@ mod tests {
         assert_eq!(CedCount::new(0x0000).value(), 0x0000);
         assert_eq!(CedCount::new(0x0001).value(), 0x0001);
         assert_eq!(CedCount::new(0x7FFF).value(), 0x7FFF);
+    }
+
+    fn status_flags_all_false() -> StatusFlags {
+        StatusFlags::new(
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            LtpReq::None,
+        )
+    }
+
+    #[test]
+    fn status_flags_new_field_order() {
+        assert!(
+            StatusFlags::new(
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                LtpReq::None
+            )
+            .clock_detected
+        );
+        assert!(
+            StatusFlags::new(
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                LtpReq::None
+            )
+            .cable_connected
+        );
+        assert!(
+            StatusFlags::new(
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                LtpReq::None
+            )
+            .ch0_locked
+        );
+        assert!(
+            StatusFlags::new(
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                false,
+                LtpReq::None
+            )
+            .ch1_locked
+        );
+        assert!(
+            StatusFlags::new(
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                LtpReq::None
+            )
+            .ch2_locked
+        );
+        assert!(
+            StatusFlags::new(
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                LtpReq::None
+            )
+            .ch3_locked
+        );
+        assert!(
+            StatusFlags::new(
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                LtpReq::None
+            )
+            .flt_ready
+        );
+        assert!(
+            StatusFlags::new(
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                LtpReq::None
+            )
+            .frl_start
+        );
+        assert_eq!(status_flags_all_false().ltp_req, LtpReq::None);
+        assert_eq!(
+            StatusFlags::new(
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                LtpReq::Lfsr2
+            )
+            .ltp_req,
+            LtpReq::Lfsr2
+        );
+    }
+
+    #[test]
+    fn ced_counters_new_field_order() {
+        let a = CedCount::new(1);
+        let b = CedCount::new(2);
+        let c = CedCount::new(3);
+        let d = CedCount::new(4);
+        let counters = CedCounters::new(Some(a), Some(b), Some(c), Some(d));
+        assert_eq!(counters.lane0.unwrap().value(), 1);
+        assert_eq!(counters.lane1.unwrap().value(), 2);
+        assert_eq!(counters.lane2.unwrap().value(), 3);
+        assert_eq!(counters.lane3.unwrap().value(), 4);
+    }
+
+    #[test]
+    fn ced_counters_new_lane3_none() {
+        let counters = CedCounters::new(
+            Some(CedCount::new(0)),
+            Some(CedCount::new(0)),
+            Some(CedCount::new(0)),
+            None,
+        );
+        assert!(counters.lane3.is_none());
+    }
+
+    #[test]
+    fn scrambler_status_new() {
+        assert!(ScramblerStatus::new(true).scrambling_active);
+        assert!(!ScramblerStatus::new(false).scrambling_active);
     }
 
     #[test]
