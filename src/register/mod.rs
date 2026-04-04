@@ -175,7 +175,7 @@ pub struct CedCount(u16);
 
 impl CedCount {
     /// Constructs a `CedCount`, masking to 15 bits.
-    pub(crate) fn new(raw: u16) -> Self {
+    pub fn new(raw: u16) -> Self {
         Self(raw & 0x7FFF)
     }
 
