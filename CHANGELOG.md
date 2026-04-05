@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-04-05
+
+### Changed
+
+- **Minimum `hdmi-hal` version raised to 0.3.0**: culvert now requires
+  `hdmi-hal >= 0.3.0`. Users who also depend on `plumbob` or `hdmi-hal-async`
+  (both of which require 0.3.0) will no longer see a duplicate `hdmi-hal` copy
+  in their dependency graph, and `ScdcTransport` is once again a single coherent
+  type across the stack.
+
 ## [0.1.1] - 2026-04-04
 
 ### Added
