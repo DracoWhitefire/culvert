@@ -344,4 +344,7 @@ The full API is available in bare `no_std` environments.
 - **Stack-ordered delivery.** The 0.1.0 scope is the register coverage needed by the
   link training crate. Everything else the spec defines is on the roadmap.
 - **No unsafe code.** `#![forbid(unsafe_code)]`.
+- **Attested releases.** Every release is published through a GitHub Actions workflow
+  that signs the `.crate` package with [SLSA Build Level 2](https://slsa.dev) provenance.
+  Verify with `gh attestation verify <file> --repo DracoWhitefire/culvert`.
 
