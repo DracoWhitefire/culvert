@@ -1,0 +1,29 @@
+[package]
+name = "culvert-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+hdmi-hal = { version = "0.3.0", default-features = false }
+
+[dependencies.culvert]
+path = ".."
+
+[[bin]]
+name = "status_flags"
+path = "fuzz_targets/status_flags.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ced"
+path = "fuzz_targets/ced.rs"
+test = false
+doc = false
+bench = false
