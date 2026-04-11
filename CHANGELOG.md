@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SLSA Build Level 2 provenance** — release artifacts are attested via
   `actions/attest-build-provenance` and verified with
   `gh attestation verify <file> --repo DracoWhitefire/culvert`.
+- **Fuzz targets** — `cargo-fuzz` harnesses for `read_status_flags` and
+  `read_ced`; 60 s smoke runs on every PR/push, 1 h deep runs on a weekly
+  schedule, with automatic corpus minimisation and corpus-update PRs.
 
 ## [0.1.2] - 2026-04-05
 
