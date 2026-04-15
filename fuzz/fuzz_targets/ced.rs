@@ -9,7 +9,7 @@ struct FuzzTransport([u8; 256]);
 impl ScdcTransport for FuzzTransport {
     type Error = core::convert::Infallible;
 
-    fn read(&mut self, reg: u8) -> Result<u8, Self::Error> {
+    fn read(&self, reg: u8) -> Result<u8, Self::Error> {
         Ok(self.0[reg as usize])
     }
 
