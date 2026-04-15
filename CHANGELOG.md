@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mutates state during reads (e.g. an operation counter), wrap those fields in `Cell`
   or `Mutex`.
 
+### Changed
+
+- **Minimum `hdmi-hal` version raised to 0.4.0**: culvert now requires `hdmi-hal >= 0.4.0`,
+  which carries the `ScdcTransport::read` receiver change above.
+- **Minimum `plumbob` version raised to 0.1.3** (optional `plumbob` feature only), which
+  itself requires `hdmi-hal >= 0.4.0`.
+
 ### Added
 
 - **SLSA Build Level 2 provenance** — release artifacts are attested via
