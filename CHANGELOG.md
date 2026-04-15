@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking changes
+
+- **`ScdcTransport::read` now takes `&self` instead of `&mut self`** (inherited from
+  `hdmi-hal`). Any type you pass to `Scdc<T>` that implements `ScdcTransport` must
+  change its `read` method receiver from `&mut self` to `&self`. If the implementation
+  mutates state during reads (e.g. an operation counter), wrap those fields in `Cell`
+  or `Mutex`.
+
 ### Added
 
 - **SLSA Build Level 2 provenance** — release artifacts are attested via

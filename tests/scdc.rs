@@ -33,7 +33,7 @@ impl SimulatedScdc {
 impl ScdcTransport for SimulatedScdc {
     type Error = Infallible;
 
-    fn read(&mut self, reg: u8) -> Result<u8, Infallible> {
+    fn read(&self, reg: u8) -> Result<u8, Infallible> {
         Ok(self.regs[reg as usize])
     }
 
