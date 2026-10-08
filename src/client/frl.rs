@@ -2,57 +2,98 @@ use hdmi_hal::scdc::ScdcTransport;
 
 use crate::error::{ProtocolError, ScdcError};
 use crate::register::address;
-use crate::register::{FrlConfig, LtpReq, StatusFlags};
+use crate::register::{
+    Config0, FfeLevels, FrlConfig, LtpReq, LtpRequests, SourceTestConfig, StatusFlags,
+};
 
 use super::Scdc;
 
 impl<T: ScdcTransport> Scdc<T> {
-    /// Writes FRL training configuration to `Config_0` (0x30).
+    /// Writes FRL training configuration to `Config_1` (0x31).
     ///
-    /// Encodes `FRL_Rate` into bits\[3:0\], `DSC_FRL_Max` into bit\[4\], and
-    /// `FFE_Levels` into bits\[7:5\].
+    /// Encodes `FRL_Rate` into bits\[3:0\] and `FFE_Levels` into bits\[7:4\].
+    ///
+    /// Returns [`crate::ProtocolError::FfeLevelsOutOfRange`] without writing anything if
+    /// the FFE levels exceed [`FfeLevels::max_for`] the requested rate.
     pub fn write_frl_config(&mut self, config: FrlConfig) -> Result<(), ScdcError<T::Error>> {
-        let byte = (config.frl_rate as u8)
-            | ((config.dsc_frl_max as u8) << 4)
-            | ((config.ffe_levels as u8) << 5);
+        if config.ffe_levels.value() > FfeLevels::max_for(config.frl_rate).value() {
+            return Err(ScdcError::Protocol(ProtocolError::FfeLevelsOutOfRange {
+                rate: config.frl_rate,
+                levels: config.ffe_levels.value(),
+            }));
+        }
+        let byte = (config.frl_rate as u8) | (config.ffe_levels.value() << 4);
+        self.transport
+            .write(address::CONFIG_1, byte)
+            .map_err(ScdcError::Transport)
+    }
+
+    /// Writes `Config_0` (0x30): `RR_Enable` (bit 0) and `FLT_No_Retrain` (bit 1).
+    pub fn write_config_0(&mut self, config: Config0) -> Result<(), ScdcError<T::Error>> {
+        let byte = (config.rr_enable as u8) | ((config.flt_no_retrain as u8) << 1);
         self.transport
             .write(address::CONFIG_0, byte)
             .map_err(ScdcError::Transport)
     }
 
-    /// Reads FRL status from `Status_Flags_0` (0x40) and `Status_Flags_1` (0x41).
-    ///
-    /// Returns [`crate::ProtocolError::UnknownLtpReq`] if the sink reports an
-    /// LTP request value not defined by the HDMI 2.1 specification.
+    /// Reads `Source_Test_Configuration` (0x35), written by the sink to instruct the
+    /// source during compliance testing.
+    pub fn read_source_test_config(&mut self) -> Result<SourceTestConfig, ScdcError<T::Error>> {
+        let byte = self
+            .transport
+            .read(address::SOURCE_TEST_CONFIG)
+            .map_err(ScdcError::Transport)?;
+        Ok(SourceTestConfig {
+            txffe_pre_shoot_only: byte & 0x02 != 0,
+            txffe_de_emphasis_only: byte & 0x04 != 0,
+            txffe_no_ffe: byte & 0x08 != 0,
+            flt_no_timeout: byte & 0x20 != 0,
+            dsc_frl_max: byte & 0x40 != 0,
+            frl_max: byte & 0x80 != 0,
+        })
+    }
+
+    /// Reads `Status_Flags_0` (0x40): clock detection, lane lock, `FLT_Ready` and DSC
+    /// decode failure.
     pub fn read_status_flags(&mut self) -> Result<StatusFlags, ScdcError<T::Error>> {
         let flags0 = self
             .transport
             .read(address::STATUS_FLAGS_0)
             .map_err(ScdcError::Transport)?;
+        Ok(StatusFlags {
+            clock_detected: flags0 & 0x01 != 0,
+            ch0_locked: flags0 & 0x02 != 0,
+            ch1_locked: flags0 & 0x04 != 0,
+            ch2_locked: flags0 & 0x08 != 0,
+            ln3_locked: flags0 & 0x10 != 0,
+            flt_ready: flags0 & 0x40 != 0,
+            dsc_decode_fail: flags0 & 0x80 != 0,
+        })
+    }
+
+    /// Reads the per-lane link training pattern requests from `Status_Flags_1` (0x41,
+    /// lanes 0–1) and `Status_Flags_2` (0x42, lanes 2–3).
+    ///
+    /// Returns [`crate::ProtocolError::UnknownLtpReq`] if any lane reports a value not
+    /// defined by the HDMI 2.1 specification.
+    pub fn read_ltp_requests(&mut self) -> Result<LtpRequests, ScdcError<T::Error>> {
         let flags1 = self
             .transport
             .read(address::STATUS_FLAGS_1)
             .map_err(ScdcError::Transport)?;
-
-        let ltp_req = match (flags1 >> 4) & 0x0F {
-            0 => LtpReq::None,
-            1 => LtpReq::Lfsr0,
-            2 => LtpReq::Lfsr1,
-            3 => LtpReq::Lfsr2,
-            4 => LtpReq::Lfsr3,
-            raw => return Err(ScdcError::Protocol(ProtocolError::UnknownLtpReq(raw))),
+        let flags2 = self
+            .transport
+            .read(address::STATUS_FLAGS_2)
+            .map_err(ScdcError::Transport)?;
+        let decode = |nibble: u8| {
+            LtpReq::from_nibble(nibble)
+                .ok_or(ScdcError::Protocol(ProtocolError::UnknownLtpReq(nibble)))
         };
-
-        Ok(StatusFlags {
-            clock_detected: flags0 & 0x01 != 0,
-            cable_connected: flags0 & 0x02 != 0,
-            ch0_locked: flags0 & 0x04 != 0,
-            ch1_locked: flags0 & 0x08 != 0,
-            ch2_locked: flags0 & 0x10 != 0,
-            ch3_locked: flags0 & 0x20 != 0,
-            flt_ready: flags0 & 0x40 != 0,
-            frl_start: flags1 & 0x01 != 0,
-            ltp_req,
+        Ok(LtpRequests {
+            lane0: decode(flags1 & 0x0F)?,
+            lane1: decode(flags1 >> 4)?,
+            lane2: decode(flags2 & 0x0F)?,
+            lane3: decode(flags2 >> 4)?,
         })
     }
 }
@@ -62,7 +103,7 @@ mod tests {
     use super::super::Scdc;
     use super::super::test_transport::TestTransport;
     use crate::error::{ProtocolError, ScdcError};
-    use crate::register::{FfeLevels, FrlConfig, LtpReq, StatusFlags};
+    use crate::register::{Config0, FfeLevels, FrlConfig, LtpReq, SourceTestConfig, StatusFlags};
     use display_types::HdmiForumFrl;
 
     #[test]
@@ -70,97 +111,224 @@ mod tests {
         let mut scdc = Scdc::new(TestTransport::new());
         scdc.write_frl_config(FrlConfig {
             frl_rate: HdmiForumFrl::Rate12Gbps4Lanes, // discriminant 6
-            dsc_frl_max: false,
-            ffe_levels: FfeLevels::Ffe0,
+            ffe_levels: FfeLevels::default(),
         })
         .unwrap();
-        assert_eq!(scdc.into_transport().get(0x30), 0x06);
-    }
-
-    #[test]
-    fn frl_config_dsc_frl_max_field() {
-        let mut scdc = Scdc::new(TestTransport::new());
-        scdc.write_frl_config(FrlConfig {
-            frl_rate: HdmiForumFrl::NotSupported,
-            dsc_frl_max: true,
-            ffe_levels: FfeLevels::Ffe0,
-        })
-        .unwrap();
-        assert_eq!(scdc.into_transport().get(0x30), 0x10);
+        let t = scdc.into_transport();
+        assert_eq!(t.get(0x31), 0x06);
+        assert_eq!(t.get(0x30), 0x00); // Config_0 untouched
     }
 
     #[test]
     fn frl_config_ffe_levels_field() {
         let mut scdc = Scdc::new(TestTransport::new());
         scdc.write_frl_config(FrlConfig {
-            frl_rate: HdmiForumFrl::NotSupported,
-            dsc_frl_max: false,
-            ffe_levels: FfeLevels::Ffe7, // discriminant 7 → bits[7:5] = 0b111 = 0xE0
+            frl_rate: HdmiForumFrl::Rate12Gbps4Lanes,
+            ffe_levels: FfeLevels::new(3).unwrap(), // → bits[7:4]
         })
         .unwrap();
-        assert_eq!(scdc.into_transport().get(0x30), 0xE0);
+        assert_eq!(scdc.into_transport().get(0x31), 0x36);
+    }
+
+    #[test]
+    fn ffe_levels_range() {
+        assert_eq!(FfeLevels::new(7).map(FfeLevels::value), Some(7));
+        assert_eq!(FfeLevels::new(8), None);
+    }
+
+    #[test]
+    fn ffe_levels_max_for_rates_up_to_12g() {
+        for rate in [
+            HdmiForumFrl::NotSupported,
+            HdmiForumFrl::Rate3Gbps3Lanes,
+            HdmiForumFrl::Rate6Gbps3Lanes,
+            HdmiForumFrl::Rate6Gbps4Lanes,
+            HdmiForumFrl::Rate8Gbps4Lanes,
+            HdmiForumFrl::Rate10Gbps4Lanes,
+            HdmiForumFrl::Rate12Gbps4Lanes,
+        ] {
+            assert_eq!(FfeLevels::max_for(rate).value(), 3, "{rate:?}");
+        }
+    }
+
+    #[test]
+    fn frl_config_rejects_ffe_levels_above_rate_maximum() {
+        let mut scdc = Scdc::new(TestTransport::new());
+        let result = scdc.write_frl_config(FrlConfig {
+            frl_rate: HdmiForumFrl::Rate12Gbps4Lanes,
+            ffe_levels: FfeLevels::new(4).unwrap(),
+        });
+        assert!(matches!(
+            result,
+            Err(ScdcError::Protocol(ProtocolError::FfeLevelsOutOfRange {
+                rate: HdmiForumFrl::Rate12Gbps4Lanes,
+                levels: 4
+            }))
+        ));
+        // Nothing is written.
+        assert_eq!(scdc.into_transport().get(0x31), 0x00);
     }
 
     #[test]
     fn status_flags_all_zero() {
-        let mut scdc = Scdc::new(TestTransport::new());
+        let f = Scdc::new(TestTransport::new()).read_status_flags().unwrap();
         assert_eq!(
-            scdc.read_status_flags().unwrap(),
+            f,
             StatusFlags {
                 clock_detected: false,
-                cable_connected: false,
                 ch0_locked: false,
                 ch1_locked: false,
                 ch2_locked: false,
-                ch3_locked: false,
+                ln3_locked: false,
                 flt_ready: false,
-                frl_start: false,
-                ltp_req: LtpReq::None,
+                dsc_decode_fail: false,
             }
         );
     }
 
     #[test]
-    fn status_flags_ltp_req_variants() {
-        for (nibble, expected) in [
-            (0u8, LtpReq::None),
-            (1, LtpReq::Lfsr0),
-            (2, LtpReq::Lfsr1),
-            (3, LtpReq::Lfsr2),
-            (4, LtpReq::Lfsr3),
+    fn status_flags_individual_bits() {
+        let read = |byte: u8| {
+            let mut sim = TestTransport::new();
+            sim.set(0x40, byte);
+            Scdc::new(sim).read_status_flags().unwrap()
+        };
+        assert!(read(0x01).clock_detected);
+        assert!(read(0x02).ch0_locked);
+        assert!(read(0x04).ch1_locked);
+        assert!(read(0x08).ch2_locked);
+        assert!(read(0x10).ln3_locked);
+        assert!(read(0x40).flt_ready);
+        assert!(read(0x80).dsc_decode_fail);
+        // Bit 5 is not defined; setting it alone sets no field.
+        assert_eq!(read(0x20), read(0x00));
+    }
+
+    #[test]
+    fn status_flags_reads_only_status_flags_0() {
+        let mut sim = TestTransport::new();
+        sim.set(0x41, 0xFF);
+        sim.set(0x42, 0xFF);
+        let f = Scdc::new(sim).read_status_flags().unwrap();
+        assert!(!f.flt_ready && !f.clock_detected);
+    }
+
+    #[test]
+    fn ltp_requests_per_lane() {
+        let mut sim = TestTransport::new();
+        sim.set(0x41, 0x65); // lane0 = 0x5 (LFSR0), lane1 = 0x6 (LFSR1)
+        sim.set(0x42, 0xF1); // lane2 = 0x1 (all ones), lane3 = 0xF (rate change)
+        let r = Scdc::new(sim).read_ltp_requests().unwrap();
+        assert_eq!(r.lane0, LtpReq::Lfsr0);
+        assert_eq!(r.lane1, LtpReq::Lfsr1);
+        assert_eq!(r.lane2, LtpReq::AllOnes);
+        assert_eq!(r.lane3, LtpReq::RateChange);
+        assert!(!r.all_trained());
+    }
+
+    #[test]
+    fn ltp_requests_all_defined_values() {
+        for (nibble, req) in [
+            (0x0u8, LtpReq::None),
+            (0x1, LtpReq::AllOnes),
+            (0x2, LtpReq::AllZeros),
+            (0x3, LtpReq::NyquistClock),
+            (0x4, LtpReq::RxDdeCompliance),
+            (0x5, LtpReq::Lfsr0),
+            (0x6, LtpReq::Lfsr1),
+            (0x7, LtpReq::Lfsr2),
+            (0x8, LtpReq::Lfsr3),
+            (0xE, LtpReq::FfeChange),
+            (0xF, LtpReq::RateChange),
         ] {
             let mut sim = TestTransport::new();
-            sim.set(0x41, nibble << 4);
-            assert_eq!(
-                Scdc::new(sim).read_status_flags().unwrap().ltp_req,
-                expected
-            );
+            sim.set(0x42, nibble << 4); // lane 3
+            assert_eq!(Scdc::new(sim).read_ltp_requests().unwrap().lane3, req);
         }
     }
 
     #[test]
-    fn status_flags_unknown_ltp_req() {
-        for nibble in 5u8..=15 {
+    fn ltp_requests_unknown_value() {
+        for nibble in 0x9u8..=0xD {
             let mut sim = TestTransport::new();
-            sim.set(0x41, nibble << 4);
+            sim.set(0x41, nibble); // lane 0
             assert!(matches!(
-                Scdc::new(sim).read_status_flags(),
+                Scdc::new(sim).read_ltp_requests(),
                 Err(ScdcError::Protocol(ProtocolError::UnknownLtpReq(n))) if n == nibble
             ));
         }
     }
 
     #[test]
-    fn status_flags_all_flags0_bits_set() {
-        // Ensures the true-branch of every flags0 bit expression is exercised.
-        let mut sim = TestTransport::new();
-        sim.set(0x40, 0x7F); // clock_detected | cable_connected | ch0–ch3_locked | flt_ready
-        sim.set(0x41, 0x01); // frl_start
-        let f = Scdc::new(sim).read_status_flags().unwrap();
-        assert!(f.clock_detected && f.cable_connected);
-        assert!(f.ch0_locked && f.ch1_locked && f.ch2_locked && f.ch3_locked);
-        assert!(f.flt_ready && f.frl_start);
-        assert_eq!(f.ltp_req, LtpReq::None);
+    fn ltp_requests_all_trained_when_zero() {
+        assert!(
+            Scdc::new(TestTransport::new())
+                .read_ltp_requests()
+                .unwrap()
+                .all_trained()
+        );
+    }
+
+    #[test]
+    fn config_0_bits() {
+        for (config, expected) in [
+            (Config0::default(), 0x00u8),
+            (
+                Config0 {
+                    rr_enable: true,
+                    flt_no_retrain: false,
+                },
+                0x01,
+            ),
+            (
+                Config0 {
+                    rr_enable: false,
+                    flt_no_retrain: true,
+                },
+                0x02,
+            ),
+            (
+                Config0 {
+                    rr_enable: true,
+                    flt_no_retrain: true,
+                },
+                0x03,
+            ),
+        ] {
+            let mut scdc = Scdc::new(TestTransport::new());
+            scdc.write_config_0(config).unwrap();
+            assert_eq!(scdc.into_transport().get(0x30), expected, "{config:?}");
+        }
+    }
+
+    #[test]
+    fn source_test_config_bits() {
+        let read = |byte: u8| {
+            let mut sim = TestTransport::new();
+            sim.set(0x35, byte);
+            Scdc::new(sim).read_source_test_config().unwrap()
+        };
+        let fields = |c: SourceTestConfig| {
+            [
+                c.txffe_pre_shoot_only,
+                c.txffe_de_emphasis_only,
+                c.txffe_no_ffe,
+                c.flt_no_timeout,
+                c.dsc_frl_max,
+                c.frl_max,
+            ]
+        };
+        for (i, bit) in [1u8, 2, 3, 5, 6, 7].into_iter().enumerate() {
+            let mut expected = [false; 6];
+            expected[i] = true;
+            assert_eq!(fields(read(1 << bit)), expected, "bit {bit}");
+        }
+        // Bits 0 and 4 are reserved and set no field.
+        assert_eq!(read(0x11), read(0x00));
+        assert_eq!(
+            read(0x00),
+            SourceTestConfig::new(false, false, false, false, false, false)
+        );
     }
 
     #[test]
@@ -169,22 +337,32 @@ mod tests {
             Scdc::new(TestTransport::failing_after(0))
                 .write_frl_config(FrlConfig {
                     frl_rate: HdmiForumFrl::NotSupported,
-                    dsc_frl_max: false,
-                    ffe_levels: FfeLevels::Ffe0,
+                    ffe_levels: FfeLevels::default(),
                 })
                 .is_err()
         );
-        // First read of status flags fails.
         assert!(
             Scdc::new(TestTransport::failing_after(0))
                 .read_status_flags()
                 .is_err()
         );
-        // Second read (Status_Flags_1) fails.
         assert!(
-            Scdc::new(TestTransport::failing_after(1))
-                .read_status_flags()
+            Scdc::new(TestTransport::failing_after(0))
+                .write_config_0(Config0::default())
                 .is_err()
         );
+        assert!(
+            Scdc::new(TestTransport::failing_after(0))
+                .read_source_test_config()
+                .is_err()
+        );
+        // First (Status_Flags_1) and second (Status_Flags_2) read of the LTP requests.
+        for n in 0..2 {
+            assert!(
+                Scdc::new(TestTransport::failing_after(n))
+                    .read_ltp_requests()
+                    .is_err()
+            );
+        }
     }
 }

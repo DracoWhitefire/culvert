@@ -2,12 +2,13 @@ use hdmi_hal::scdc::ScdcTransport;
 
 use crate::error::ScdcError;
 use crate::register::address;
-use crate::register::{CedCount, CedCounters};
+use crate::register::{CedCount, CedCounters, RsCorrectionCount};
 
 use super::Scdc;
 
 impl<T: ScdcTransport> Scdc<T> {
-    /// Reads per-lane character error counts from `ERR_DET` registers (0x50–0x57).
+    /// Reads per-lane character error counts from `ERR_DET` registers (0x50–0x55 for
+    /// lanes 0–2, 0x57–0x58 for lane 3; 0x56 is the CED checksum).
     ///
     /// Each lane's counter is decoded from a low/high byte pair. The high byte's
     /// bit 7 is a validity flag; if it is not set the lane's counter is `None`.
@@ -56,6 +57,22 @@ impl<T: ScdcTransport> Scdc<T> {
             lane3: decode(l3, h3),
         })
     }
+
+    /// Reads the Reed-Solomon correction count from `RS_Correction_L/H` (0x59/0x5A).
+    ///
+    /// Returns `None` if the high byte's validity bit (bit 7) is not set. The count is
+    /// maintained by the sink in FRL mode; `UpdateFlags::rsed_update` signals a change.
+    pub fn read_rs_correction(&mut self) -> Result<Option<RsCorrectionCount>, ScdcError<T::Error>> {
+        let lo = self
+            .transport
+            .read(address::RS_CORRECTION_L)
+            .map_err(ScdcError::Transport)?;
+        let hi = self
+            .transport
+            .read(address::RS_CORRECTION_H)
+            .map_err(ScdcError::Transport)?;
+        Ok((hi & 0x80 != 0).then(|| RsCorrectionCount::new(((hi as u16) << 8) | lo as u16)))
+    }
 }
 
 #[cfg(test)]
@@ -87,8 +104,9 @@ mod tests {
     #[test]
     fn ced_lane3_independent() {
         let mut sim = TestTransport::new();
-        sim.set(0x56, 0x01);
-        sim.set(0x57, 0x80); // lane3 valid, count = 1
+        sim.set(0x56, 0xAA); // CED checksum, must not be read as lane 3
+        sim.set(0x57, 0x01);
+        sim.set(0x58, 0x80); // lane3 valid, count = 1
         let ced = Scdc::new(sim).read_ced().unwrap();
         assert_eq!(ced.lane0, None);
         assert_eq!(ced.lane3.map(|c| c.value()), Some(0x0001));
@@ -100,6 +118,36 @@ mod tests {
             assert!(
                 Scdc::new(TestTransport::failing_after(n))
                     .read_ced()
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn rs_correction_valid_and_invalid() {
+        let mut sim = TestTransport::new();
+        sim.set(0x59, 0x34);
+        sim.set(0x5A, 0x81); // valid, upper counter bits = 0x01
+        assert_eq!(
+            Scdc::new(sim)
+                .read_rs_correction()
+                .unwrap()
+                .map(|c| c.value()),
+            Some(0x0134)
+        );
+
+        let mut sim = TestTransport::new();
+        sim.set(0x59, 0xFF);
+        sim.set(0x5A, 0x7F); // validity bit clear
+        assert_eq!(Scdc::new(sim).read_rs_correction().unwrap(), None);
+    }
+
+    #[test]
+    fn rs_correction_transport_error() {
+        for n in 0..2 {
+            assert!(
+                Scdc::new(TestTransport::failing_after(n))
+                    .read_rs_correction()
                     .is_err()
             );
         }

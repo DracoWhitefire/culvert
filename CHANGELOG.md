@@ -14,21 +14,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   change its `read` method receiver from `&mut self` to `&self`. If the implementation
   mutates state during reads (e.g. an operation counter), wrap those fields in `Cell`
   or `Mutex`.
+- **SCDC register map corrected** (see *Fixed*); the typed API follows the corrected map:
+  - `write_frl_config` writes `Config_1` (0x31). `FrlConfig::dsc_frl_max` is removed
+    (`DSC_FRL_Max` is a sink-written flag, now read with `read_source_test_config`).
+    `FfeLevels` is the highest TxFFE level index (0–7, `FfeLevels::new`,
+    `FfeLevels::value`) instead of the `Ffe0`–`Ffe7` enum, and `write_frl_config`
+    returns `ProtocolError::FfeLevelsOutOfRange` when it exceeds the maximum for the
+    rate (3 up to 12 Gbps, 7 above).
+  - `StatusFlags` decodes `Status_Flags_0` only: `ch0_locked`–`ch2_locked` and
+    `ln3_locked` (bits 1–4) and `dsc_decode_fail` (bit 7). `cable_connected`,
+    `ch3_locked`, `frl_start` and `ltp_req` are removed; `StatusFlags::new` takes the
+    seven flags in bit order.
+  - Link training pattern requests are read per lane with `read_ltp_requests`.
+    `LtpReq` follows the spec values: LFSR 0–3 are 0x5–0x8, and `AllOnes`, `AllZeros`,
+    `NyquistClock`, `RxDdeCompliance`, `FfeChange` and `RateChange` are added.
+  - `UpdateFlags` decodes all `Update_0` flags (`rr_test`, `source_test_update`,
+    `frl_start`, `flt_update`, `rsed_update`); `frl_update` and `dsc_update` are
+    removed, `Update_1` is no longer accessed, and `UpdateFlags::new` takes the seven
+    flags in bit order. `clear_update_flags` never clears `rr_test`, which the source
+    must not clear.
+- **`plumbob` feature removed for now.** plumbob 0.1's `ScdcClient` models a single link
+  training pattern request and waits for `FRL_Start` before training, which cannot work
+  with the corrected register map. The implementation returns once plumbob trains per
+  lane (LTS:2 → LTS:3 → LTS:P).
 
 ### Changed
 
 - **Minimum `hdmi-hal` version raised to 0.4.0**: culvert now requires `hdmi-hal >= 0.4.0`,
   which carries the `ScdcTransport::read` receiver change above.
-- **Minimum `plumbob` version raised to 0.1.3** (optional `plumbob` feature only), which
-  itself requires `hdmi-hal >= 0.4.0`.
+
+### Fixed
+
+- **Wrong SCDC register map** — the map culvert implemented did not match the HDMI 2.1
+  register layout. FRL rate and FFE levels were written to `Config_0` (0x30), whose bit 0
+  enables sink read requests; lane-lock bits were shifted by one; `FRL_Start` and the
+  link training pattern requests were read from the wrong registers, for one lane only,
+  with the wrong pattern values; and lane 3's CED counter was read from 0x56/0x57, where
+  0x56 is the CED checksum. The map was rebuilt from open-source HDMI 2.1
+  implementations (Xilinx, AMD, Amlogic, Realtek and two Linux DRM patch series), with
+  every field confirmed by at least two of them; see `doc/architecture.md`.
 
 ### Added
+
+- `write_config_0` and `Config0` (`RR_Enable`, `FLT_No_Retrain`).
+- `read_source_test_config` and `SourceTestConfig` (`TxFFE_Pre_Shoot_Only`,
+  `TxFFE_De_Emphasis_Only`, `TxFFE_No_FFE`, `FLT_No_Timeout`, `DSC_FRL_Max`, `FRL_Max`).
+- `read_ltp_requests`, `LtpRequests` and `LtpRequests::all_trained`.
+- `read_rs_correction` and `RsCorrectionCount` (Reed-Solomon correction count, 0x59/0x5A).
+- `FfeLevels::max_for` and `ProtocolError::FfeLevelsOutOfRange`.
 
 - **SLSA Build Level 2 provenance** — release artifacts are attested via
   `actions/attest-build-provenance` and verified with
   `gh attestation verify <file> --repo DracoWhitefire/culvert`.
-- **Fuzz targets** — `cargo-fuzz` harnesses for `read_status_flags` and
-  `read_ced`; 60 s smoke runs on every PR/push, 1 h deep runs on a weekly
+- **Fuzz targets** — `cargo-fuzz` harnesses for `read_status_flags`,
+  `read_ltp_requests` and `read_ced`; 60 s smoke runs on every PR/push, 1 h deep runs on a weekly
   schedule, with automatic corpus minimisation and corpus-update PRs.
 
 ### Internal

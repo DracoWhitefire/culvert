@@ -1,52 +1,33 @@
 # Roadmap
 
 Registers defined by the HDMI 2.1 SCDC specification (§10.4) that are not wrapped
-in culvert 0.1.0. All addresses are listed in `src/register/address.rs` for
-completeness; methods for these groups will be added in later releases.
+by culvert yet, plus the `Update_0` bit 7 (`LIP_Update`) that HDMI 2.2 adds. Methods for
+these groups may be added in later releases.
 
 ---
 
-## RS Correction counters (0x58–0x5F)
+## CED checksum (0x56)
 
-FRL mode uses Reed-Solomon forward error correction on each lane. The `Rs_Correction`
-registers mirror the `ERR_DET` layout: four low/high byte pairs, each holding a 15-bit
-counter with a validity bit in the high byte's bit 7.
-
-Future API surface:
-
-```rust
-pub struct RsCorrectionCounters {
-    pub lane0: Option<RsCorrectionCount>,
-    pub lane1: Option<RsCorrectionCount>,
-    pub lane2: Option<RsCorrectionCount>,
-    pub lane3: Option<RsCorrectionCount>,   // 4-lane FRL only
-}
-
-impl Scdc<T> {
-    pub fn read_rs_correction(&mut self) -> Result<RsCorrectionCounters, ScdcError<T::Error>>;
-}
-```
-
-The implementation would be a direct parallel of `read_ced()`.
+`ERR_DET_Checksum` (0x56) is a checksum over the CED registers. Its address is listed in
+`src/register/address.rs`, but culvert does not read or verify it yet. Verifying it would
+let `read_ced` detect a counter pair torn between two reads; reading the CED block in one
+transaction would need a multi-byte read in `hdmi-hal`'s `ScdcTransport`.
 
 ---
 
 ## DSC status
 
-`Update_1` bit 0 (`dsc_update`) notifies the source that DSC (Display Stream
-Compression) status has changed. Culvert 0.1.0 surfaces this flag via `UpdateFlags`
-but provides no method to read the corresponding DSC status registers.
-
-The HDMI 2.1 spec defines DSC-related fields in `Status_Flags_1` and in additional
-registers. These will be wrapped once the DSC path in the link training crate requires
-them.
+`Status_Flags_0` bit 7 (`DSC_Decode_Fail`) is read by `read_status_flags`, and the
+sink-written `DSC_FRL_Max` test flag by `read_source_test_config`. Any further DSC-related
+registers will be wrapped once the DSC path in the link training crate requires them.
 
 ---
 
-## Manufacturer identification (0xC0–0xDD)
+## Manufacturer identification (0xD0–0xDD)
 
-HDMI 2.1 defines a range of SCDC registers for sink manufacturer OUI, device
-identification, and manufacturer-specific data. These are not required for link
+HDMI 2.1 defines a range of SCDC registers for sink manufacturer OUI (0xD0–0xD2), device
+identification (0xD3–0xDA), hardware and software revisions (0xDB–0xDD), and
+manufacturer-specific data (0xDE onwards). These are not required for link
 training and are deferred indefinitely. If they are ever needed, they would be
 exposed through a separate `read_manufacturer_info()` method returning raw bytes
 rather than typed fields, since the content is vendor-defined.

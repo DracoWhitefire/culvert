@@ -1,7 +1,8 @@
 //! Raw address constants for the SCDC register map (HDMI 2.1 spec §10.4).
 //!
-//! All SCDC-defined register addresses are listed here, including those not yet
-//! wrapped by a typed method, so the full map is in one place.
+//! Lists every register culvert accesses, plus the CED checksum, which is documented
+//! but not read yet. `Update_1` (0x11), `Test_Config_0` (0xC0) and the manufacturer
+//! identification registers (0xD0 onwards) are described in `doc/roadmap.md`.
 
 // Version (§10.4.1)
 pub(crate) const SINK_VERSION: u8 = 0x01;
@@ -9,7 +10,8 @@ pub(crate) const SOURCE_VERSION: u8 = 0x02;
 
 // Update flags (§10.4.2)
 pub(crate) const UPDATE_0: u8 = 0x10;
-pub(crate) const UPDATE_1: u8 = 0x11;
+// Update_1 (0x11) defines no fields in the HDMI 2.1 implementations this map is
+// based on, so it is not accessed.
 
 // TMDS and scrambling (§10.4.3)
 pub(crate) const TMDS_CONFIG: u8 = 0x20;
@@ -17,8 +19,11 @@ pub(crate) const SCRAMBLER_STATUS: u8 = 0x21;
 
 // FRL configuration and status (§10.4.4)
 pub(crate) const CONFIG_0: u8 = 0x30;
+pub(crate) const CONFIG_1: u8 = 0x31;
+pub(crate) const SOURCE_TEST_CONFIG: u8 = 0x35;
 pub(crate) const STATUS_FLAGS_0: u8 = 0x40;
 pub(crate) const STATUS_FLAGS_1: u8 = 0x41;
+pub(crate) const STATUS_FLAGS_2: u8 = 0x42;
 
 // Character Error Detection (§10.4.5)
 pub(crate) const ERR_DET_0_L: u8 = 0x50;
@@ -27,5 +32,11 @@ pub(crate) const ERR_DET_1_L: u8 = 0x52;
 pub(crate) const ERR_DET_1_H: u8 = 0x53;
 pub(crate) const ERR_DET_2_L: u8 = 0x54;
 pub(crate) const ERR_DET_2_H: u8 = 0x55;
-pub(crate) const ERR_DET_3_L: u8 = 0x56;
-pub(crate) const ERR_DET_3_H: u8 = 0x57;
+// Checksum over the CED registers; documented, not decoded yet.
+#[allow(dead_code)]
+pub(crate) const ERR_DET_CHECKSUM: u8 = 0x56;
+pub(crate) const ERR_DET_3_L: u8 = 0x57;
+pub(crate) const ERR_DET_3_H: u8 = 0x58;
+// Reed-Solomon correction count (FRL).
+pub(crate) const RS_CORRECTION_L: u8 = 0x59;
+pub(crate) const RS_CORRECTION_H: u8 = 0x5A;

@@ -25,7 +25,18 @@ pub enum ProtocolError {
     /// exposed so callers can log or diagnose misbehaving sinks, not because it carries
     /// semantic meaning — any value outside the spec-defined set is treated as a protocol
     /// violation regardless of its numeric value.
+    ///
+    /// Not currently returned: no culvert method reads an FRL rate back from the sink.
     UnknownFrlRate(u8),
+    /// The requested FFE levels exceed the maximum allowed at the requested FRL rate
+    /// (see [`FfeLevels::max_for`](crate::FfeLevels::max_for)). A sink treats a
+    /// prohibited value as 0, so it is rejected before anything is written.
+    FfeLevelsOutOfRange {
+        /// The requested FRL rate.
+        rate: crate::FrlRate,
+        /// The requested FFE levels.
+        levels: u8,
+    },
     /// The sink reported an LTP request value not defined by the HDMI 2.1 specification.
     ///
     /// The inner value is the raw 4-bit field read directly from the SCDC register. It is
