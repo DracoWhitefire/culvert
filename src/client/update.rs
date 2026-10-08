@@ -27,11 +27,11 @@ impl<T: ScdcTransport> Scdc<T> {
     /// Clears the specified update flags in `Update_0` (0x10).
     ///
     /// Each flag set to `true` in `flags` is cleared (write-1-to-clear). Flags
-    /// set to `false` are left unchanged.
+    /// set to `false` are left unchanged. `rr_test` is never cleared: Read Request Test
+    /// is the one update flag the source must not clear, so it is ignored here.
     pub fn clear_update_flags(&mut self, flags: UpdateFlags) -> Result<(), ScdcError<T::Error>> {
         let u0 = (flags.status_update as u8)
             | ((flags.ced_update as u8) << 1)
-            | ((flags.rr_test as u8) << 2)
             | ((flags.source_test_update as u8) << 3)
             | ((flags.frl_start as u8) << 4)
             | ((flags.flt_update as u8) << 5)
@@ -85,8 +85,18 @@ mod tests {
         scdc.clear_update_flags(UpdateFlags::new(true, true, true, true, true, true, true))
             .unwrap();
         let t = scdc.into_transport();
-        assert_eq!(t.get(0x10), 0x7F);
+        assert_eq!(t.get(0x10), 0x7B); // every flag except RR_Test (bit 2)
         assert_eq!(t.get(0x11), 0x00);
+    }
+
+    #[test]
+    fn clear_update_flags_never_clears_rr_test() {
+        let mut scdc = Scdc::new(TestTransport::new());
+        scdc.clear_update_flags(UpdateFlags::new(
+            false, false, true, false, false, false, false,
+        ))
+        .unwrap();
+        assert_eq!(scdc.into_transport().get(0x10), 0x00);
     }
 
     #[test]

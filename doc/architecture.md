@@ -80,7 +80,9 @@ see [Sources](#sources) for how each was established.
   `Status_Update` (bit 0), `CED_Update` (bit 1), `RR_Test` (bit 2),
   `Source_Test_Update` (bit 3), `FRL_Start` (bit 4), `FLT_Update` (bit 5),
   `RSED_Update` (bit 6). The source reads and then clears these to detect sink-side
-  state changes without polling every status register on every pass.
+  state changes without polling every status register on every pass. `RR_Test` is the
+  one flag the source must not clear (Intel `xe` series), so `clear_update_flags` never
+  writes bit 2.
 - `Update_1` (0x11) — no fields are defined by the sources below; culvert does not
   access it.
 

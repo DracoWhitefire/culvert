@@ -277,7 +277,9 @@ pub struct UpdateFlags {
     pub status_update: bool,
     /// Bit 1: CED counters have been updated; re-read the `ERR_DET` registers.
     pub ced_update: bool,
-    /// Bit 2: read request test.
+    /// Bit 2: read request test. Never cleared by
+    /// [`Scdc::clear_update_flags`](crate::Scdc::clear_update_flags): the source must not
+    /// clear it.
     pub rr_test: bool,
     /// Bit 3: the sink has written `Source_Test_Configuration` (0x35).
     pub source_test_update: bool,
