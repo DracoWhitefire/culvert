@@ -31,24 +31,37 @@ impl ScramblerStatus {
     }
 }
 
-/// FFE (Feed-Forward Equalization) levels written into `Config_1` bits\[7:4\].
+/// FFE (Feed-Forward Equalization) levels written into `Config_1` bits\[7:4\]: the highest
+/// TxFFE level index the source supports for the requested rate.
 ///
-/// A raw 4-bit value: the sources this register map is based on do not state the
-/// valid range, so any value that fits the field is accepted.
+/// The allowed maximum depends on the FRL rate: 3 up to 12 Gbps, 7 for faster rates (see
+/// [`FfeLevels::max_for`]). [`Scdc::write_frl_config`](crate::Scdc::write_frl_config)
+/// rejects a configuration that exceeds it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct FfeLevels(u8);
 
 impl FfeLevels {
-    /// Constructs `FfeLevels`; `None` if `levels` does not fit the 4-bit field.
+    /// Constructs `FfeLevels`; `None` above 7, the highest level any FRL rate allows.
     pub const fn new(levels: u8) -> Option<Self> {
-        if levels <= 0x0F {
+        if levels <= 7 {
             Some(Self(levels))
         } else {
             None
         }
     }
 
-    /// Returns the raw 4-bit value.
+    /// The highest FFE level allowed at `rate`: 3 for rates up to 12 Gbps, 7 above.
+    ///
+    /// `HdmiForumFrl` values are in rate order (12 Gbps is 6; the 16, 20 and 24 Gbps rates
+    /// that allow 7 follow it), so rates added to `HdmiForumFrl` later get 7 without a
+    /// change here.
+    pub fn max_for(rate: HdmiForumFrl) -> Self {
+        // 3 for rates up to 12 Gbps, 3 + 4 = 7 for faster ones.
+        let faster_than_12g = (rate as u8 > HdmiForumFrl::Rate12Gbps4Lanes as u8) as u8;
+        Self(3 + 4 * faster_than_12g)
+    }
+
+    /// Returns the level index.
     pub const fn value(self) -> u8 {
         self.0
     }

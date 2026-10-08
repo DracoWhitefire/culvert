@@ -2,7 +2,9 @@ use hdmi_hal::scdc::ScdcTransport;
 
 use crate::error::{ProtocolError, ScdcError};
 use crate::register::address;
-use crate::register::{Config0, FrlConfig, LtpReq, LtpRequests, SourceTestConfig, StatusFlags};
+use crate::register::{
+    Config0, FfeLevels, FrlConfig, LtpReq, LtpRequests, SourceTestConfig, StatusFlags,
+};
 
 use super::Scdc;
 
@@ -10,7 +12,16 @@ impl<T: ScdcTransport> Scdc<T> {
     /// Writes FRL training configuration to `Config_1` (0x31).
     ///
     /// Encodes `FRL_Rate` into bits\[3:0\] and `FFE_Levels` into bits\[7:4\].
+    ///
+    /// Returns [`crate::ProtocolError::FfeLevelsOutOfRange`] without writing anything if
+    /// the FFE levels exceed [`FfeLevels::max_for`] the requested rate.
     pub fn write_frl_config(&mut self, config: FrlConfig) -> Result<(), ScdcError<T::Error>> {
+        if config.ffe_levels.value() > FfeLevels::max_for(config.frl_rate).value() {
+            return Err(ScdcError::Protocol(ProtocolError::FfeLevelsOutOfRange {
+                rate: config.frl_rate,
+                levels: config.ffe_levels.value(),
+            }));
+        }
         let byte = (config.frl_rate as u8) | (config.ffe_levels.value() << 4);
         self.transport
             .write(address::CONFIG_1, byte)
@@ -112,17 +123,50 @@ mod tests {
     fn frl_config_ffe_levels_field() {
         let mut scdc = Scdc::new(TestTransport::new());
         scdc.write_frl_config(FrlConfig {
-            frl_rate: HdmiForumFrl::NotSupported,
-            ffe_levels: FfeLevels::new(0xF).unwrap(), // → bits[7:4]
+            frl_rate: HdmiForumFrl::Rate12Gbps4Lanes,
+            ffe_levels: FfeLevels::new(3).unwrap(), // → bits[7:4]
         })
         .unwrap();
-        assert_eq!(scdc.into_transport().get(0x31), 0xF0);
+        assert_eq!(scdc.into_transport().get(0x31), 0x36);
     }
 
     #[test]
     fn ffe_levels_range() {
-        assert_eq!(FfeLevels::new(15).map(FfeLevels::value), Some(15));
-        assert_eq!(FfeLevels::new(16), None);
+        assert_eq!(FfeLevels::new(7).map(FfeLevels::value), Some(7));
+        assert_eq!(FfeLevels::new(8), None);
+    }
+
+    #[test]
+    fn ffe_levels_max_for_rates_up_to_12g() {
+        for rate in [
+            HdmiForumFrl::NotSupported,
+            HdmiForumFrl::Rate3Gbps3Lanes,
+            HdmiForumFrl::Rate6Gbps3Lanes,
+            HdmiForumFrl::Rate6Gbps4Lanes,
+            HdmiForumFrl::Rate8Gbps4Lanes,
+            HdmiForumFrl::Rate10Gbps4Lanes,
+            HdmiForumFrl::Rate12Gbps4Lanes,
+        ] {
+            assert_eq!(FfeLevels::max_for(rate).value(), 3, "{rate:?}");
+        }
+    }
+
+    #[test]
+    fn frl_config_rejects_ffe_levels_above_rate_maximum() {
+        let mut scdc = Scdc::new(TestTransport::new());
+        let result = scdc.write_frl_config(FrlConfig {
+            frl_rate: HdmiForumFrl::Rate12Gbps4Lanes,
+            ffe_levels: FfeLevels::new(4).unwrap(),
+        });
+        assert!(matches!(
+            result,
+            Err(ScdcError::Protocol(ProtocolError::FfeLevelsOutOfRange {
+                rate: HdmiForumFrl::Rate12Gbps4Lanes,
+                levels: 4
+            }))
+        ));
+        // Nothing is written.
+        assert_eq!(scdc.into_transport().get(0x31), 0x00);
     }
 
     #[test]

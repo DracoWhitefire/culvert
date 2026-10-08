@@ -137,7 +137,9 @@ from three independent implementations, which agree wherever they overlap:
 - the Intel HDMI FRL enablement patch series for the `xe` driver (2026-08), including
   its FRL link training sequence.
 
-`FFE_Levels` is modelled as a raw 4-bit value: none of the sources states the valid range.
+`FFE_Levels` is the highest TxFFE level index the source supports: 0–3 for rates up to
+12 Gbps and 0–7 for faster rates, per the Intel `xe` series (`drm_scdc_config_frl`) and
+AMD's display driver (`hdmi_frl_get_max_ffe_level`). A sink treats a prohibited value as 0.
 
 ---
 
@@ -217,8 +219,10 @@ pub struct Config0 {
     pub flt_no_retrain: bool,   // bit 1
 }
 
-/// FFE (Feed-Forward Equalization) levels written into `Config_1` bits[7:4].
-/// A raw 4-bit value; `FfeLevels::new` rejects values above 15.
+/// FFE (Feed-Forward Equalization) levels written into `Config_1` bits[7:4]: the highest
+/// TxFFE level index the source supports. `FfeLevels::new` rejects values above 7, and
+/// `FfeLevels::max_for(rate)` gives the per-rate maximum (3 up to 12 Gbps, 7 above), which
+/// `write_frl_config` enforces.
 pub struct FfeLevels(u8);
 
 /// `Config_1` (0x31).
