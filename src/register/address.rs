@@ -9,7 +9,8 @@ pub(crate) const SOURCE_VERSION: u8 = 0x02;
 
 // Update flags (§10.4.2)
 pub(crate) const UPDATE_0: u8 = 0x10;
-pub(crate) const UPDATE_1: u8 = 0x11;
+// Update_1 (0x11) defines no fields in the HDMI 2.1 implementations this map is
+// based on, so it is not accessed.
 
 // TMDS and scrambling (§10.4.3)
 pub(crate) const TMDS_CONFIG: u8 = 0x20;

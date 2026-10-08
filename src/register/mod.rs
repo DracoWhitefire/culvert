@@ -134,34 +134,52 @@ impl StatusFlags {
     }
 }
 
-/// Decoded content of `Update_0` (0x10) and `Update_1` (0x11).
+/// Decoded content of `Update_0` (0x10).
 ///
 /// Flags are set by the sink to notify the source of state changes. The source
-/// reads and then clears them via [`Scdc::clear_update_flags`](crate::Scdc::clear_update_flags).
+/// reads and then clears them via [`Scdc::clear_update_flags`](crate::Scdc::clear_update_flags)
+/// (write-1-to-clear). `Update_1` (0x11) defines no fields and is not accessed.
 ///
 /// Because this type is both returned by `read_update_flags` and accepted by
 /// `clear_update_flags`, use [`UpdateFlags::new`] to construct it.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UpdateFlags {
-    /// FRL status has changed; re-read `Status_Flags`.
-    pub frl_update: bool,
-    /// CED counters have been updated; re-read `ERR_DET` registers.
-    pub ced_update: bool,
-    /// General status has changed.
+    /// Bit 0: general status has changed.
     pub status_update: bool,
-    /// DSC status has changed (`Update_1` bit 0).
-    pub dsc_update: bool,
+    /// Bit 1: CED counters have been updated; re-read the `ERR_DET` registers.
+    pub ced_update: bool,
+    /// Bit 2: read request test.
+    pub rr_test: bool,
+    /// Bit 3: the sink has written `Source_Test_Configuration` (0x35).
+    pub source_test_update: bool,
+    /// Bit 4: link training passed; the source may start FRL transmission.
+    pub frl_start: bool,
+    /// Bit 5: the per-lane link training pattern requests have changed.
+    pub flt_update: bool,
+    /// Bit 6: the Reed-Solomon correction count has been updated.
+    pub rsed_update: bool,
 }
 
 impl UpdateFlags {
-    /// Constructs an `UpdateFlags` value.
-    pub fn new(status_update: bool, ced_update: bool, frl_update: bool, dsc_update: bool) -> Self {
+    /// Constructs `UpdateFlags` from the `Update_0` flags, in bit order.
+    pub fn new(
+        status_update: bool,
+        ced_update: bool,
+        rr_test: bool,
+        source_test_update: bool,
+        frl_start: bool,
+        flt_update: bool,
+        rsed_update: bool,
+    ) -> Self {
         Self {
             status_update,
             ced_update,
-            frl_update,
-            dsc_update,
+            rr_test,
+            source_test_update,
+            frl_start,
+            flt_update,
+            rsed_update,
         }
     }
 }
@@ -416,21 +434,25 @@ mod tests {
 
     #[test]
     fn update_flags_new_field_order() {
-        // Verify each parameter maps to the correct named field.
-        let f = UpdateFlags::new(true, false, false, false);
-        assert!(f.status_update);
-        assert!(!f.ced_update && !f.frl_update && !f.dsc_update);
-
-        let f = UpdateFlags::new(false, true, false, false);
-        assert!(f.ced_update);
-        assert!(!f.status_update && !f.frl_update && !f.dsc_update);
-
-        let f = UpdateFlags::new(false, false, true, false);
-        assert!(f.frl_update);
-        assert!(!f.status_update && !f.ced_update && !f.dsc_update);
-
-        let f = UpdateFlags::new(false, false, false, true);
-        assert!(f.dsc_update);
-        assert!(!f.status_update && !f.ced_update && !f.frl_update);
+        // Each parameter maps to the named field for its Update_0 bit, in bit order.
+        let all = |f: UpdateFlags| {
+            [
+                f.status_update,
+                f.ced_update,
+                f.rr_test,
+                f.source_test_update,
+                f.frl_start,
+                f.flt_update,
+                f.rsed_update,
+            ]
+        };
+        for bit in 0..7 {
+            let mut args = [false; 7];
+            args[bit] = true;
+            let f = UpdateFlags::new(
+                args[0], args[1], args[2], args[3], args[4], args[5], args[6],
+            );
+            assert_eq!(all(f), args, "parameter {bit}");
+        }
     }
 }

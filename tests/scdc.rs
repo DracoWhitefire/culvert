@@ -144,31 +144,34 @@ fn read_status_flags_unknown_ltp_req() {
 #[test]
 fn read_update_flags_decodes_registers() {
     let mut transport = SimulatedScdc::new();
-    transport.set(0x10, 0x07); // status_update | ced_update | frl_update
-    transport.set(0x11, 0x01); // dsc_update
+    transport.set(0x10, 0x33); // status_update | ced_update | frl_start | flt_update
     let mut scdc = Scdc::new(transport);
 
     let flags = scdc.read_update_flags().unwrap();
     assert!(flags.status_update);
     assert!(flags.ced_update);
-    assert!(flags.frl_update);
-    assert!(flags.dsc_update);
+    assert!(!flags.rr_test);
+    assert!(!flags.source_test_update);
+    assert!(flags.frl_start);
+    assert!(flags.flt_update);
+    assert!(!flags.rsed_update);
 }
 
 #[test]
 fn clear_update_flags_writes_w1c() {
     let mut transport = SimulatedScdc::new();
-    transport.set(0x10, 0x07);
-    transport.set(0x11, 0x01);
+    transport.set(0x10, 0x33);
     let mut scdc = Scdc::new(SimulatedScdc::new());
 
-    // Clear only frl_update and dsc_update.
-    scdc.clear_update_flags(UpdateFlags::new(false, false, true, true))
-        .unwrap();
+    // Clear only flt_update and frl_start.
+    scdc.clear_update_flags(UpdateFlags::new(
+        false, false, false, false, true, true, false,
+    ))
+    .unwrap();
 
     let transport = scdc.into_transport();
-    assert_eq!(transport.get(0x10), 0x04); // only frl_update bit
-    assert_eq!(transport.get(0x11), 0x01); // dsc_update bit
+    assert_eq!(transport.get(0x10), 0x30); // frl_start (bit 4) | flt_update (bit 5)
+    assert_eq!(transport.get(0x11), 0x00); // Update_1 untouched
 }
 
 // ── CED ───────────────────────────────────────────────────────────────────────

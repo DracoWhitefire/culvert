@@ -61,10 +61,8 @@ fn main() {
     //   = 0b0011_0001 = 0x31
     transport.set(0x41, 0x31);
 
-    // Update_0: frl_update (bit 2) set — sink reports FRL status changed
-    transport.set(0x10, 0x04);
-    // Update_1: dsc_update (bit 0) clear
-    transport.set(0x11, 0x00);
+    // Update_0: flt_update (bit 5) set — sink reports new link training pattern requests
+    transport.set(0x10, 0x20);
 
     // ERR_DET lane 0: valid (bit 7 of high byte), count = 0x0002
     transport.set(0x50, 0x02); // low byte
@@ -103,8 +101,8 @@ fn main() {
 
     let updates = scdc.read_update_flags().unwrap();
     println!(
-        "Update flags:       status={} ced={} frl={} dsc={}",
-        updates.status_update, updates.ced_update, updates.frl_update, updates.dsc_update
+        "Update flags:       status={} ced={} frl_start={} flt_update={}",
+        updates.status_update, updates.ced_update, updates.frl_start, updates.flt_update
     );
 
     let ced = scdc.read_ced().unwrap();
@@ -136,8 +134,10 @@ fn main() {
     .unwrap();
     println!("Wrote Config_0: frl_rate=6G/3L, dsc_frl_max=false, ffe_levels=Ffe2");
 
-    // Acknowledge the frl_update flag (write-1-to-clear).
-    scdc.clear_update_flags(UpdateFlags::new(false, false, true, false))
-        .unwrap();
-    println!("Cleared frl_update flag");
+    // Acknowledge the flt_update flag (write-1-to-clear).
+    scdc.clear_update_flags(UpdateFlags::new(
+        false, false, false, false, false, true, false,
+    ))
+    .unwrap();
+    println!("Cleared flt_update flag");
 }
