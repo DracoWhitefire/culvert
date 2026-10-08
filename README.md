@@ -28,7 +28,7 @@ culvert = "0.1"
 Wrap your transport in `Scdc` and call typed methods:
 
 ```rust
-use culvert::{Scdc, TmdsConfig, FrlConfig, FrlRate, FfeLevels};
+use culvert::{Scdc, TmdsConfig, FrlConfig, FrlRate, FfeLevels, UpdateFlags};
 
 let mut scdc = Scdc::new(transport);
 
@@ -51,10 +51,11 @@ if flags.flt_ready {
     })?;
 }
 
-// On FLT_Update, read the pattern each lane requests
+// On FLT_Update, read the pattern each lane requests, then acknowledge the flag
 let updates = scdc.read_update_flags()?;
 if updates.flt_update {
     let requests = scdc.read_ltp_requests()?;
+    scdc.clear_update_flags(UpdateFlags::new(false, false, false, false, false, true, false))?;
     if requests.all_trained() {
         // training passed; wait for FRL_Start in the update flags
     }

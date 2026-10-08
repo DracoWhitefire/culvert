@@ -145,7 +145,8 @@ pub enum LtpReq {
     AllZeros = 0x2,
     /// 0x3: Nyquist clock pattern.
     NyquistClock = 0x3,
-    /// 0x4: Rx DDE compliance pattern.
+    /// 0x4: DDE compliance pattern (called RxDDE on the receiver side and TxDDE on the
+    /// transmitter side of the Xilinx drivers).
     RxDdeCompliance = 0x4,
     /// 0x5: LFSR 0.
     Lfsr0 = 0x5,
@@ -353,7 +354,8 @@ impl RsCorrectionCount {
     }
 }
 
-/// Per-lane character error counts decoded from `ERR_DET` registers (0x50–0x57).
+/// Per-lane character error counts decoded from `ERR_DET` registers (0x50–0x55 for
+/// lanes 0–2, 0x57–0x58 for lane 3).
 ///
 /// A lane's counter is `None` when its validity bit is not set. `lane3` is only
 /// populated in 4-lane FRL mode.

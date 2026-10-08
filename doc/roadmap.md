@@ -1,8 +1,8 @@
 # Roadmap
 
 Registers defined by the HDMI 2.1 SCDC specification (§10.4) that are not wrapped
-by culvert yet. All addresses are listed in `src/register/address.rs` for
-completeness; methods for these groups will be added in later releases.
+by culvert yet, plus the `Update_0` bit 7 (`LIP_Update`) that HDMI 2.2 adds. Methods for
+these groups may be added in later releases.
 
 ---
 

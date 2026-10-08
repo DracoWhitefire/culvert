@@ -73,10 +73,10 @@ fn main() {
     transport.set(0x53, 0x81); // high byte: valid, upper counter bits = 0x01
 
     // Lanes 2 and 3: validity bit not set → will decode as None
-    transport.set(0x54, 0x00);
-    transport.set(0x55, 0x00);
-    transport.set(0x56, 0x00);
-    transport.set(0x57, 0x00);
+    transport.set(0x54, 0x00); // lane 2 low
+    transport.set(0x55, 0x00); // lane 2 high
+    transport.set(0x57, 0x00); // lane 3 low (0x56 is the CED checksum)
+    transport.set(0x58, 0x00); // lane 3 high
 
     let mut scdc = Scdc::new(transport);
 

@@ -187,8 +187,6 @@ fn read_update_flags_decodes_registers() {
 
 #[test]
 fn clear_update_flags_writes_w1c() {
-    let mut transport = SimulatedScdc::new();
-    transport.set(0x10, 0x33);
     let mut scdc = Scdc::new(SimulatedScdc::new());
 
     // Clear only flt_update and frl_start.

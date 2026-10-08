@@ -1,7 +1,8 @@
 //! Raw address constants for the SCDC register map (HDMI 2.1 spec §10.4).
 //!
-//! All SCDC-defined register addresses are listed here, including those not yet
-//! wrapped by a typed method, so the full map is in one place.
+//! Lists every register culvert accesses, plus the CED checksum, which is documented
+//! but not read yet. `Update_1` (0x11), `Test_Config_0` (0xC0) and the manufacturer
+//! identification registers (0xD0 onwards) are described in `doc/roadmap.md`.
 
 // Version (§10.4.1)
 pub(crate) const SINK_VERSION: u8 = 0x01;

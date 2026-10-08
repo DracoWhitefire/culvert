@@ -30,10 +30,11 @@ Culvert covers:
 - FRL training primitives: writing `Config_1` (FRL rate, FFE levels) and `Config_0`,
   reading `Status_Flags_0` (`FLT_Ready`, lane lock), the per-lane `LTP` requests and
   `Source_Test_Configuration`, reading and clearing `Update_0` (`FLT_Update`, `FRL_Start`),
-- CED reporting: reading per-lane error counters from `ERR_DET` registers,
+- CED reporting: reading per-lane error counters from `ERR_DET` registers and the
+  Reed-Solomon correction count,
 - version negotiation: reading `Sink_Version`, writing `Source_Version`,
-- structured errors: transport errors and protocol-level violations (e.g. an unrecognised
-  FRL rate value returned by the sink) surfaced as distinct variants.
+- structured errors: transport errors and protocol-level violations (e.g. an undefined
+  link training pattern request from the sink) surfaced as distinct variants.
 
 The following are out of scope:
 
@@ -130,14 +131,21 @@ see [Sources](#sources) for how each was established.
 The register map was originally written from a summary of the spec and was wrong in
 several places (FRL configuration in `Config_0`, shifted lock bits, `FRL_Start` and the
 LTP requests in the wrong registers, lane 3 CED at 0x56/0x57). The map above was rebuilt
-from three independent implementations, which agree wherever they overlap:
+from open-source HDMI 2.1 implementations; every field was confirmed by at least two of
+them:
 
-- the AMD/Xilinx HDMI 2.1 receiver driver (`embeddedsw`, `v_hdmirx1/src/xv_hdmirx1_frl.c`,
-  SCDC field table with address, mask and shift for every field; LTP values from
-  `xv_hdmirx1_frl.h`),
-- the Linux DRM SCDC helper patch series for HDMI 2.1 fields (LKML, 2026-07, v8),
-- the Intel HDMI FRL enablement patch series for the `xe` driver (2026-08), including
-  its FRL link training sequence.
+- the AMD/Xilinx HDMI 2.1 receiver and transmitter drivers (`embeddedsw`,
+  `v_hdmirx1/src/xv_hdmirx1_frl.c`: SCDC field table with address, mask and shift for
+  every field; LTP values in `xv_hdmirx1_frl.h`; source-side training in
+  `v_hdmitx1/src/xv_hdmitx1_frl.c`),
+- AMD's display driver in mainline Linux (`dc_hdmi_types.h`, `link_hdmi_frl.c`),
+- the Amlogic HDMI 2.1 transmitter driver (`hdmitx21/hw/hdmi_tx_ddc.h`) and a Realtek
+  receiver driver (`hdmi_scdc.h`),
+- the Linux DRM SCDC helper patch series for HDMI 2.1 fields (LKML, 2026-07, v8) and the
+  Intel HDMI FRL enablement series for the `xe` driver (2026-08), including its FRL link
+  training sequence. Both extend the mainline `drm_scdc.h`; the `xe` series additionally
+  defines `Update_0` bit 7 (`LIP_Update`, HDMI 2.2) and FRL rates above 12 Gbps, which
+  culvert does not decode yet.
 
 `FFE_Levels` is the highest TxFFE level index the source supports: 0–3 for rates up to
 12 Gbps and 0–7 for faster rates, per the Intel `xe` series (`drm_scdc_config_frl`) and
@@ -197,9 +205,12 @@ multiple registers in a single logical operation:
 - `read_ced()` reads the four ERR_DET low/high byte pairs (0x50–0x55, 0x57–0x58) in a
   single pass and returns one `CedCounters` struct.
 
-In both cases the method performs a contiguous sequential read with no intervening writes
-or protocol state changes. This is distinct from the multi-step sequences (write rate,
-poll for ready, handle pattern request) that belong in the link training crate.
+In both cases the method performs its reads back to back with no intervening writes or
+protocol state changes. Each register is a separate single-byte transaction, so a value
+the sink updates between two reads can be torn; reading the block in one transaction (and
+verifying the CED checksum) needs a multi-byte read in `hdmi-hal`'s `ScdcTransport`. This
+is distinct from the multi-step sequences (write rate, poll for ready, handle pattern
+request) that belong in the link training crate.
 
 ---
 
@@ -321,14 +332,15 @@ Culvert surfaces two distinct failure categories:
 pub enum ScdcError<E> {
     /// The underlying I²C/DDC transport returned an error.
     Transport(E),
-    /// The register data violates the SCDC protocol (e.g. an undefined FRL rate value).
+    /// The register data violates the SCDC protocol (e.g. an undefined LTP request value).
     Protocol(ProtocolError),
 }
 
 #[non_exhaustive]
 pub enum ProtocolError {
-    UnknownFrlRate(u8),
+    UnknownFrlRate(u8),   // reserved; no current method reads an FRL rate back
     UnknownLtpReq(u8),
+    FfeLevelsOutOfRange { rate: FrlRate, levels: u8 },
 }
 ```
 
@@ -337,7 +349,7 @@ are distinct. A caller that only cares about transport health can match on `Tran
 one that wants to diagnose unexpected sink behaviour inspects `Protocol(_)`.
 
 Both enums are `#[non_exhaustive]` at the type level, consistent with the rest of the
-stack. Variants are plain — callers can match `UnknownFrlRate(rate)` without `..`.
+stack. Variants are plain — callers can match `UnknownLtpReq(value)` without `..`.
 
 `ScdcError` is `#[non_exhaustive]` to allow future variants without a breaking change.
 
@@ -400,9 +412,10 @@ The full API is available in bare `no_std` environments.
   implementation without touching culvert. The `plumbob` cargo feature (temporarily
   removed, see above) gates the impl so culvert remains independently usable without the
   link training layer as a dependency.
-- **Spec accuracy and completeness.** All SCDC-defined registers are implemented. No
-  register is omitted because its consumer has not been built yet. What is needed for
-  0.1.0 ships in 0.1.0; the rest is tracked on the roadmap.
+- **Spec accuracy and completeness.** Every field culvert decodes is checked against the
+  sources listed with the register map. No register is omitted because its consumer has
+  not been built yet; registers not wrapped yet (the CED checksum, `Update_1`,
+  `Test_Config_0`, manufacturer identification) are tracked on the roadmap.
 - **Stateless client, stateful caller.** `Scdc<T>` holds no protocol state. Sequencing,
   retry logic, and training state live in the caller. This keeps culvert fully testable
   in isolation — any sequence of register reads and writes can be exercised without

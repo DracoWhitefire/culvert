@@ -25,6 +25,8 @@ pub enum ProtocolError {
     /// exposed so callers can log or diagnose misbehaving sinks, not because it carries
     /// semantic meaning — any value outside the spec-defined set is treated as a protocol
     /// violation regardless of its numeric value.
+    ///
+    /// Not currently returned: no culvert method reads an FRL rate back from the sink.
     UnknownFrlRate(u8),
     /// The requested FFE levels exceed the maximum allowed at the requested FRL rate
     /// (see [`FfeLevels::max_for`](crate::FfeLevels::max_for)). A sink treats a
