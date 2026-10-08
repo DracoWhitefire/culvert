@@ -36,8 +36,6 @@ pub(crate) const ERR_DET_2_H: u8 = 0x55;
 pub(crate) const ERR_DET_CHECKSUM: u8 = 0x56;
 pub(crate) const ERR_DET_3_L: u8 = 0x57;
 pub(crate) const ERR_DET_3_H: u8 = 0x58;
-// Reed-Solomon correction count (FRL); format not confirmed, not decoded yet.
-#[allow(dead_code)]
+// Reed-Solomon correction count (FRL).
 pub(crate) const RS_CORRECTION_L: u8 = 0x59;
-#[allow(dead_code)]
 pub(crate) const RS_CORRECTION_H: u8 = 0x5A;

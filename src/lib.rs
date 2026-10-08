@@ -20,5 +20,5 @@ pub use client::Scdc;
 pub use error::{ProtocolError, ScdcError};
 pub use register::{
     CedCount, CedCounters, Config0, FfeLevels, FrlConfig, FrlRate, LtpReq, LtpRequests,
-    ScramblerStatus, SourceTestConfig, StatusFlags, TmdsConfig, UpdateFlags,
+    RsCorrectionCount, ScramblerStatus, SourceTestConfig, StatusFlags, TmdsConfig, UpdateFlags,
 };

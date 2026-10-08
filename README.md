@@ -84,10 +84,11 @@ training.
 | Status flags              | 0x40        | `read_status_flags` |
 | LTP requests              | 0x41–0x42   | `read_ltp_requests` |
 | Character Error Detection | 0x50–0x55, 0x57–0x58 | `read_ced` |
+| RS correction count       | 0x59–0x5A   | `read_rs_correction` |
 
 The register map and its sources are described in
 [`doc/architecture.md`](doc/architecture.md#the-scdc-register-map). Registers not yet
-covered (the CED checksum, RS correction counters, manufacturer identification) are
+covered (the CED checksum, manufacturer identification) are
 documented in [`doc/roadmap.md`](doc/roadmap.md).
 
 ## `no_std`

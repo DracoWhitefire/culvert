@@ -6,22 +6,12 @@ completeness; methods for these groups will be added in later releases.
 
 ---
 
-## CED checksum and RS correction count (0x56, 0x59–0x5A)
+## CED checksum (0x56)
 
-`ERR_DET_Checksum` (0x56) is a checksum over the CED registers, and
-`RS_Correction_L/H` (0x59/0x5A) hold the Reed-Solomon correction count used in FRL mode
-(signalled by `RSED_Update` in `Update_0`). Both addresses are listed in
-`src/register/address.rs`, but their exact formats are not confirmed by the sources the
-register map is based on (see [`architecture.md`](architecture.md#sources)), so culvert
-does not decode them yet.
-
-Possible future API surface, once the format is confirmed:
-
-```rust
-impl Scdc<T> {
-    pub fn read_rs_correction(&mut self) -> Result<Option<RsCorrectionCount>, ScdcError<T::Error>>;
-}
-```
+`ERR_DET_Checksum` (0x56) is a checksum over the CED registers. Its address is listed in
+`src/register/address.rs`, but culvert does not read or verify it yet. Verifying it would
+let `read_ced` detect a counter pair torn between two reads; reading the CED block in one
+transaction would need a multi-byte read in `hdmi-hal`'s `ScdcTransport`.
 
 ---
 

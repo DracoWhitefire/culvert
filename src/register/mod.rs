@@ -331,6 +331,26 @@ impl CedCount {
     }
 }
 
+/// A 15-bit Reed-Solomon correction count decoded from `RS_Correction_L/H` (0x59/0x5A).
+///
+/// The high byte's bit 7 is the validity flag consumed by
+/// [`Scdc::read_rs_correction`](crate::Scdc::read_rs_correction); the counter occupies
+/// bits\[14:0\]. Values are always ≤ `0x7FFF`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RsCorrectionCount(u16);
+
+impl RsCorrectionCount {
+    /// Constructs an `RsCorrectionCount`, masking to 15 bits.
+    pub fn new(raw: u16) -> Self {
+        Self(raw & 0x7FFF)
+    }
+
+    /// Returns the Reed-Solomon correction count.
+    pub fn value(self) -> u16 {
+        self.0
+    }
+}
+
 /// Per-lane character error counts decoded from `ERR_DET` registers (0x50–0x57).
 ///
 /// A lane's counter is `None` when its validity bit is not set. `lane3` is only

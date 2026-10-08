@@ -120,8 +120,8 @@ see [Sources](#sources) for how each was established.
 - `ERR_DET_Checksum` (0x56) — checksum over the CED registers.
 - `ERR_DET_3_L/H` (0x57/0x58) — lane 3 counter, same format; only populated in FRL
   4-lane mode.
-- `RS_Correction_L/H` (0x59/0x5A) — Reed-Solomon correction count (FRL). Its exact
-  format is not confirmed by the sources below; culvert does not decode it yet.
+- `RS_Correction_L/H` (0x59/0x5A) — Reed-Solomon correction count (FRL), same format
+  as a CED counter: validity bit (bit 7) in the high byte and a 15-bit count.
 
 ### Sources
 
@@ -178,6 +178,7 @@ impl<T: ScdcTransport> Scdc<T> {
 
     // CED
     pub fn read_ced(&mut self) -> Result<CedCounters, ScdcError<T::Error>>;
+    pub fn read_rs_correction(&mut self) -> Result<Option<RsCorrectionCount>, ScdcError<T::Error>>;
 }
 ```
 
@@ -292,6 +293,10 @@ pub struct UpdateFlags {
 /// The high byte's bit 7 is the validity flag; the counter occupies bits[14:0].
 /// `CedCount::value()` returns the raw count as a `u16` (always <= 0x7FFF).
 pub struct CedCount(u16);
+
+/// A 15-bit Reed-Solomon correction count from RS_Correction_L/H (0x59/0x5A), same
+/// format as a CED counter.
+pub struct RsCorrectionCount(u16);
 
 pub struct CedCounters {
     pub lane0: Option<CedCount>,   // None if validity bit not set
