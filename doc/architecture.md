@@ -27,8 +27,9 @@ Culvert covers:
 - the `Scdc<T>` client: wraps a `ScdcTransport` and exposes typed read/write
   methods for each register group,
 - scrambling control: writing `TMDS_Config`, polling `Scrambler_Status`,
-- FRL training primitives: writing `Config_0` (FRL rate, FFE levels), reading
-  `Status_Flags` (`FLT_Ready`, lane lock, `LTP_Req`), reading and clearing `Update_0`,
+- FRL training primitives: writing `Config_1` (FRL rate, FFE levels) and `Config_0`,
+  reading `Status_Flags_0` (`FLT_Ready`, lane lock), the per-lane `LTP` requests and
+  `Source_Test_Configuration`, reading and clearing `Update_0` (`FLT_Update`, `FRL_Start`),
 - CED reporting: reading per-lane error counters from `ERR_DET` registers,
 - version negotiation: reading `Sink_Version`, writing `Source_Version`,
 - structured errors: transport errors and protocol-level violations (e.g. an unrecognised
@@ -55,7 +56,7 @@ display-types  ─┐
 hdmi-hal       ─┴─►  culvert  ──►  frl-training
 ```
 
-- `display-types` — for `HdmiForumFrl`, the FRL rate enum used in `Config_0`.
+- `display-types` — for `HdmiForumFrl`, the FRL rate enum used in `Config_1`.
 - `hdmi-hal` — for the `ScdcTransport` trait.
 
 Culvert does not depend on `piaf` or `concordance`. It is consumed by the link training
@@ -67,37 +68,75 @@ crate, which sequences culvert's operations according to the FRL training algori
 SCDC is defined in HDMI 2.1 spec section 10.4. Registers are one byte wide, addressed
 by a one-byte offset over DDC/I²C to the sink's SCDC address (0x54).
 
-The register map divides into four functional groups:
+The register map divides into six functional groups. Bit positions are given per field;
+see [Sources](#sources) for how each was established.
 
 **Version** (0x01–0x02)
 - `Sink_Version` (0x01, R) — SCDC protocol version supported by the sink.
 - `Source_Version` (0x02, W) — SCDC protocol version the source intends to use.
 
-**Update flags** (0x10–0x11)
-- `Update_0` (0x10, R/W) — change notification flags: `FRL_Update`, `CED_Update`,
-  `Status_Update`. The source reads and then clears these to detect sink-side state
-  changes without polling every status register on every pass.
-- `Update_1` (0x11, R/W) — `DSC_Update` (bit 0): DSC status has changed.
+**Update flags** (0x10)
+- `Update_0` (0x10, R/W, write-1-to-clear) — change notification flags set by the sink:
+  `Status_Update` (bit 0), `CED_Update` (bit 1), `RR_Test` (bit 2),
+  `Source_Test_Update` (bit 3), `FRL_Start` (bit 4), `FLT_Update` (bit 5),
+  `RSED_Update` (bit 6). The source reads and then clears these to detect sink-side
+  state changes without polling every status register on every pass.
+- `Update_1` (0x11) — no fields are defined by the sources below; culvert does not
+  access it.
 
 **TMDS and scrambling** (0x20–0x21)
-- `TMDS_Config` (0x20, W) — `Scrambling_Enable` and `TMDS_Bit_Clock_Ratio`.
-- `Scrambler_Status` (0x21, R) — sink acknowledgement that scrambling is active.
+- `TMDS_Config` (0x20, W) — `Scrambling_Enable` (bit 0) and `TMDS_Bit_Clock_Ratio`
+  (bit 1).
+- `Scrambler_Status` (0x21, R) — `Scrambling_Status` (bit 0): sink acknowledgement that
+  scrambling is active.
 
-**FRL configuration and status** (0x30–0x41)
-- `Config_0` (0x30, W) — `FRL_Rate` (4 bits, maps to `HdmiForumFrl`), `DSC_FRL_Max`,
-  `FFE_Levels`. Written by the source to request a training rate.
-- `Status_Flags_0` (0x40, R) — `Clock_Detected`, `Cable_Connected`, per-lane lock bits
-  (`Ch0_Locked`–`Ch3_Locked`), `FLT_Ready` (sink ready to begin link training).
-- `Status_Flags_1` (0x41, R) — `FRL_Start`, `LTP_Req` (link training pattern request
-  from sink).
+**FRL configuration** (0x30–0x35)
+- `Config_0` (0x30, W) — `RR_Enable` (bit 0, read request enable) and
+  `FLT_No_Retrain` (bit 1).
+- `Config_1` (0x31, W) — `FRL_Rate` (bits 3:0, maps to `HdmiForumFrl`) and
+  `FFE_Levels` (bits 7:4). Written by the source to request a training rate.
+- `Source_Test_Configuration` (0x35, R) — written by the sink (compliance testing) to
+  instruct the source: `FLT_No_Timeout` (bit 5) and `DSC_FRL_Max` (bit 6). Read by the
+  source when `Source_Test_Update` is set.
 
-**Character Error Detection** (0x50–0x57)
-- `ERR_DET_0_L/H` through `ERR_DET_3_L/H` — per-lane 15-bit error counters with a
-  validity bit in the high byte. Lane 3 is only populated in FRL mode (4-lane).
-  Counters are read as a pair (low + high byte) to form a single `u16` value.
+**Status** (0x40–0x42)
+- `Status_Flags_0` (0x40, R) — `Clock_Detected` (bit 0), `Ch0_Locked` (bit 1),
+  `Ch1_Locked` (bit 2), `Ch2_Locked` (bit 3), `Ln3_Locked` (bit 4, FRL 4-lane only),
+  `FLT_Ready` (bit 6, sink ready for link training), `DSC_Decode_Fail` (bit 7).
+- `Status_Flags_1` (0x41, R) — link training pattern requested for lane 0 (bits 3:0)
+  and lane 1 (bits 7:4).
+- `Status_Flags_2` (0x42, R) — link training pattern requested for lane 2 (bits 3:0)
+  and lane 3 (bits 7:4).
 
-All registers are implemented in full per the spec. Registers needed by the link
-training layer are available in 0.1.0; the remainder are tracked on the roadmap.
+  LTP request values: 0x0 = no pattern (lane trained), 0x1 = all ones, 0x2 = all zeros,
+  0x3 = Nyquist clock, 0x4 = Rx DDE compliance pattern, 0x5–0x8 = LFSR 0–3,
+  0xE = request FFE change, 0xF = request FRL rate change. Other values are undefined.
+
+**Character Error Detection** (0x50–0x5A)
+- `ERR_DET_0_L/H` (0x50/0x51), `ERR_DET_1_L/H` (0x52/0x53), `ERR_DET_2_L/H`
+  (0x54/0x55) — per-lane 15-bit error counters with a validity bit (bit 7) in the high
+  byte. Counters are read as a pair (low + high byte) to form a single `u16` value.
+- `ERR_DET_Checksum` (0x56) — checksum over the CED registers.
+- `ERR_DET_3_L/H` (0x57/0x58) — lane 3 counter, same format; only populated in FRL
+  4-lane mode.
+- `RS_Correction_L/H` (0x59/0x5A) — Reed-Solomon correction count (FRL). Its exact
+  format is not confirmed by the sources below; culvert does not decode it yet.
+
+### Sources
+
+The register map was originally written from a summary of the spec and was wrong in
+several places (FRL configuration in `Config_0`, shifted lock bits, `FRL_Start` and the
+LTP requests in the wrong registers, lane 3 CED at 0x56/0x57). The map above was rebuilt
+from three independent implementations, which agree wherever they overlap:
+
+- the AMD/Xilinx HDMI 2.1 receiver driver (`embeddedsw`, `v_hdmirx1/src/xv_hdmirx1_frl.c`,
+  SCDC field table with address, mask and shift for every field; LTP values from
+  `xv_hdmirx1_frl.h`),
+- the Linux DRM SCDC helper patch series for HDMI 2.1 fields (LKML, 2026-07, v8),
+- the Intel HDMI FRL enablement patch series for the `xe` driver (2026-08), including
+  its FRL link training sequence.
+
+`FFE_Levels` is modelled as a raw 4-bit value: none of the sources states the valid range.
 
 ---
 
@@ -123,9 +162,14 @@ impl<T: ScdcTransport> Scdc<T> {
     pub fn write_tmds_config(&mut self, config: TmdsConfig) -> Result<(), ScdcError<T::Error>>;
     pub fn read_scrambler_status(&mut self) -> Result<ScramblerStatus, ScdcError<T::Error>>;
 
-    // FRL training primitives
+    // FRL configuration
+    pub fn write_config_0(&mut self, config: Config0) -> Result<(), ScdcError<T::Error>>;
     pub fn write_frl_config(&mut self, config: FrlConfig) -> Result<(), ScdcError<T::Error>>;
+    pub fn read_source_test_config(&mut self) -> Result<SourceTestConfig, ScdcError<T::Error>>;
+
+    // Status and update flags
     pub fn read_status_flags(&mut self) -> Result<StatusFlags, ScdcError<T::Error>>;
+    pub fn read_ltp_requests(&mut self) -> Result<LtpRequests, ScdcError<T::Error>>;
     pub fn read_update_flags(&mut self) -> Result<UpdateFlags, ScdcError<T::Error>>;
     pub fn clear_update_flags(&mut self, flags: UpdateFlags) -> Result<(), ScdcError<T::Error>>;
 
@@ -140,15 +184,12 @@ stateless from the client's perspective; any sequencing state lives in the calle
 Methods map to register groups, not necessarily individual registers. Two methods span
 multiple registers in a single logical operation:
 
-- `read_status_flags()` reads both `Status_Flags_0` (0x40) and `Status_Flags_1` (0x41)
-  and merges them into one `StatusFlags` struct. The two registers form one logical unit —
-  splitting them across two calls would force the caller to reason about a combined value
-  that the spec treats as atomic.
-- `read_update_flags()` and `clear_update_flags()` both operate on `Update_0` (0x10) and
-  `Update_1` (0x11), returning and writing the full `UpdateFlags` struct. A caller polling
-  for any update should not need two calls to see all flags.
-- `read_ced()` reads the four ERR_DET low/high byte pairs (0x50–0x57) in a single pass
-  and returns one `CedCounters` struct.
+- `read_ltp_requests()` reads `Status_Flags_1` (0x41) and `Status_Flags_2` (0x42) and
+  returns the pattern requested for each of the four lanes as one `LtpRequests` struct.
+  The sink updates all lanes' requests together and signals the change once through
+  `FLT_Update`.
+- `read_ced()` reads the four ERR_DET low/high byte pairs (0x50–0x55, 0x57–0x58) in a
+  single pass and returns one `CedCounters` struct.
 
 In both cases the method performs a contiguous sequential read with no intervening writes
 or protocol state changes. This is distinct from the multi-step sequences (write rate,
@@ -169,51 +210,73 @@ pub struct ScramblerStatus {
     pub scrambling_active: bool,
 }
 
-/// FFE (Feed-Forward Equalization) level count written into Config_0 bits[5:3].
-pub enum FfeLevels {
-    Ffe0 = 0,
-    Ffe1 = 1,
-    Ffe2 = 2,
-    Ffe3 = 3,
-    Ffe4 = 4,
-    Ffe5 = 5,
-    Ffe6 = 6,
-    Ffe7 = 7,
+/// `Config_0` (0x30).
+pub struct Config0 {
+    pub rr_enable: bool,        // bit 0: sink may raise read requests
+    pub flt_no_retrain: bool,   // bit 1
 }
 
+/// FFE (Feed-Forward Equalization) levels written into `Config_1` bits[7:4].
+/// A raw 4-bit value; `FfeLevels::new` rejects values above 15.
+pub struct FfeLevels(u8);
+
+/// `Config_1` (0x31).
 pub struct FrlConfig {
-    pub frl_rate: HdmiForumFrl,   // from display-types
-    pub dsc_frl_max: bool,
-    pub ffe_levels: FfeLevels,
+    pub frl_rate: HdmiForumFrl,   // from display-types; bits[3:0]
+    pub ffe_levels: FfeLevels,    // bits[7:4]
 }
 
-/// Link Training Pattern requested by the sink via Status_Flags_1 bits[7:4].
-/// An undefined nibble value surfaces as `ProtocolError::UnknownLtpReq`.
+/// `Source_Test_Configuration` (0x35), written by the sink.
+pub struct SourceTestConfig {
+    pub flt_no_timeout: bool,   // bit 5
+    pub dsc_frl_max: bool,      // bit 6
+}
+
+/// Link Training Pattern requested by the sink for one lane (a 4-bit field in
+/// `Status_Flags_1`/`Status_Flags_2`). An undefined value surfaces as
+/// `ProtocolError::UnknownLtpReq`.
 pub enum LtpReq {
-    None  = 0,   // no LTP requested
-    Lfsr0 = 1,
-    Lfsr1 = 2,
-    Lfsr2 = 3,
-    Lfsr3 = 4,
+    None              = 0x0,   // lane trained, no pattern requested
+    AllOnes           = 0x1,
+    AllZeros          = 0x2,
+    NyquistClock      = 0x3,
+    RxDdeCompliance   = 0x4,
+    Lfsr0             = 0x5,
+    Lfsr1             = 0x6,
+    Lfsr2             = 0x7,
+    Lfsr3             = 0x8,
+    FfeChange         = 0xE,   // sink requests an FFE level change
+    RateChange        = 0xF,   // sink requests a lower FRL rate
 }
 
+/// Per-lane pattern requests from `Status_Flags_1` (0x41) and `Status_Flags_2` (0x42).
+pub struct LtpRequests {
+    pub lane0: LtpReq,
+    pub lane1: LtpReq,
+    pub lane2: LtpReq,
+    pub lane3: LtpReq,   // LtpReq::None in 3-lane FRL
+}
+
+/// `Status_Flags_0` (0x40).
 pub struct StatusFlags {
-    pub clock_detected: bool,
-    pub cable_connected: bool,
-    pub ch0_locked: bool,
-    pub ch1_locked: bool,
-    pub ch2_locked: bool,
-    pub ch3_locked: bool,   // FRL 4-lane only
-    pub flt_ready: bool,
-    pub frl_start: bool,    // sink signals FRL training may begin
-    pub ltp_req: LtpReq,
+    pub clock_detected: bool,    // bit 0
+    pub ch0_locked: bool,        // bit 1
+    pub ch1_locked: bool,        // bit 2
+    pub ch2_locked: bool,        // bit 3
+    pub ln3_locked: bool,        // bit 4, FRL 4-lane only
+    pub flt_ready: bool,         // bit 6: sink ready for link training
+    pub dsc_decode_fail: bool,   // bit 7
 }
 
+/// `Update_0` (0x10), write-1-to-clear.
 pub struct UpdateFlags {
-    pub frl_update: bool,
-    pub ced_update: bool,
-    pub status_update: bool,
-    pub dsc_update: bool,   // Update_1 (0x11) bit 0
+    pub status_update: bool,        // bit 0
+    pub ced_update: bool,           // bit 1
+    pub rr_test: bool,              // bit 2
+    pub source_test_update: bool,   // bit 3
+    pub frl_start: bool,            // bit 4: training passed, source may start FRL
+    pub flt_update: bool,           // bit 5: LTP requests changed
+    pub rsed_update: bool,          // bit 6
 }
 
 /// A 15-bit character error count decoded from an ERR_DET register pair.
@@ -270,12 +333,13 @@ This boundary is worth stating explicitly because the SCDC spec interleaves prot
 mechanics and training algorithm steps.
 
 **Culvert's responsibility:** typed register access. Given a desired FRL rate, write it
-into `Config_0`. Given a status register, decode it into `StatusFlags`. Culvert does not
+into `Config_1`. Given a status register, decode it into `StatusFlags`. Culvert does not
 know what to do with a `StatusFlags`; it only knows how to read one.
 
 **Link training's responsibility:** the state machine. Receive a ranked list of FRL tiers
-from concordance. For each tier: write `Config_0`, wait for `FLT_Ready`, handle
-`LTP_Req`, declare success or fall back to the next tier. That sequencing logic, timeout
+from concordance. For each tier: wait for `FLT_Ready`, write `Config_1`, then on each
+`FLT_Update` read the per-lane `LTP` requests and act on them (send the pattern, change
+FFE, or drop the rate) until every lane reports no pattern, then wait for `FRL_Start`. That sequencing logic, timeout
 handling, and retry policy live in the link training crate — not here.
 
 The rule: if it touches time, state across multiple register accesses, or fallback logic,
@@ -299,11 +363,13 @@ plumbob  = "0.1"
 
 The impl converts between culvert's internal types and plumbob's owned types:
 
-- `culvert::StatusFlags` → `plumbob::TrainingStatus` (projecting `frl_start` and `ltp_req`)
+- `culvert::StatusFlags`, `UpdateFlags` and `LtpRequests` → `plumbob::TrainingStatus`
+  (projecting `flt_ready`, `frl_start`, `flt_update` and the per-lane requests; the
+  `ScdcClient` trait changes with plumbob's LTS:3 rework)
 - `culvert::FrlConfig` ← `plumbob::FrlConfig` (field-for-field, with `LtpReq` conversion)
 - `culvert::CedCounters` → `plumbob::CedCounters` (same structure, different type paths)
 
-culvert's richer `StatusFlags` (lane lock bits, cable detection, clock detection) is not
+culvert's richer `StatusFlags` (lane lock bits, clock detection, DSC decode failure) is not
 exposed through `ScdcClient` — plumbob defines only what the training state machine
 needs. Callers that need the full register set use `Scdc<T>` directly.
 
