@@ -7,7 +7,8 @@ use crate::register::{CedCount, CedCounters};
 use super::Scdc;
 
 impl<T: ScdcTransport> Scdc<T> {
-    /// Reads per-lane character error counts from `ERR_DET` registers (0x50–0x57).
+    /// Reads per-lane character error counts from `ERR_DET` registers (0x50–0x55 for
+    /// lanes 0–2, 0x57–0x58 for lane 3; 0x56 is the CED checksum).
     ///
     /// Each lane's counter is decoded from a low/high byte pair. The high byte's
     /// bit 7 is a validity flag; if it is not set the lane's counter is `None`.
@@ -87,8 +88,9 @@ mod tests {
     #[test]
     fn ced_lane3_independent() {
         let mut sim = TestTransport::new();
-        sim.set(0x56, 0x01);
-        sim.set(0x57, 0x80); // lane3 valid, count = 1
+        sim.set(0x56, 0xAA); // CED checksum, must not be read as lane 3
+        sim.set(0x57, 0x01);
+        sim.set(0x58, 0x80); // lane3 valid, count = 1
         let ced = Scdc::new(sim).read_ced().unwrap();
         assert_eq!(ced.lane0, None);
         assert_eq!(ced.lane3.map(|c| c.value()), Some(0x0001));

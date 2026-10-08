@@ -20,13 +20,14 @@ impl ScdcTransport for FuzzTransport {
 }
 
 fuzz_target!(|data: &[u8]| {
-    if data.len() < 8 {
+    if data.len() < 9 {
         return;
     }
 
     let mut regs = [0u8; 256];
-    // ERR_DET registers 0x50–0x57: low/high byte pairs for lanes 0–3.
-    regs[0x50..=0x57].copy_from_slice(&data[..8]);
+    // ERR_DET registers 0x50–0x58: low/high byte pairs for lanes 0–2, the CED
+    // checksum at 0x56, and lane 3 at 0x57–0x58.
+    regs[0x50..=0x58].copy_from_slice(&data[..9]);
 
     let mut scdc = Scdc::new(FuzzTransport(regs));
     // Must not panic; always returns Ok(CedCounters) — no error path in read_ced.

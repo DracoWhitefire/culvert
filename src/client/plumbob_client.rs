@@ -208,7 +208,7 @@ mod tests {
     fn read_ced_all_lanes_propagate() {
         let mut sim = TestTransport::new();
         // Set validity + value for each lane
-        for (base, val) in [(0x50u8, 1u8), (0x52, 2), (0x54, 3), (0x56, 4)] {
+        for (base, val) in [(0x50u8, 1u8), (0x52, 2), (0x54, 3), (0x57, 4)] {
             sim.set(base, val);
             sim.set(base + 1, 0x80);
         }

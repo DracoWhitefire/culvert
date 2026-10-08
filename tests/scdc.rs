@@ -185,9 +185,11 @@ fn read_ced_decodes_valid_and_invalid_lanes() {
     // Lane 2: valid, count = 0x7FFF (max)
     transport.set(0x54, 0xFF); // l2
     transport.set(0x55, 0xFF); // h2: valid + all counter bits set
+    // CED checksum sits between lane 2 and lane 3.
+    transport.set(0x56, 0x80);
     // Lane 3: validity bit not set → None
-    transport.set(0x56, 0x00);
     transport.set(0x57, 0x00);
+    transport.set(0x58, 0x00);
     let mut scdc = Scdc::new(transport);
 
     let ced = scdc.read_ced().unwrap();
