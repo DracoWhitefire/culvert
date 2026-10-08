@@ -12,9 +12,10 @@ impl<T: ScdcTransport> ScdcClient for Scdc<T> {
     type Error = ScdcError<T::Error>;
 
     fn write_frl_config(&mut self, config: plumbob::FrlConfig) -> Result<(), Self::Error> {
+        // plumbob 0.1's `dsc_frl_max` has no place in `Config_1`: `DSC_FRL_Max` is a
+        // sink-written test flag in `Source_Test_Configuration` (0x35). It is ignored.
         self.write_frl_config(FrlConfig {
             frl_rate: config.rate,
-            dsc_frl_max: config.dsc_frl_max,
             ffe_levels: ffe_levels(config.ffe_levels),
         })
     }
@@ -42,16 +43,8 @@ impl<T: ScdcTransport> ScdcClient for Scdc<T> {
 }
 
 fn ffe_levels(f: plumbob::FfeLevels) -> FfeLevels {
-    match f {
-        plumbob::FfeLevels::Ffe0 => FfeLevels::Ffe0,
-        plumbob::FfeLevels::Ffe1 => FfeLevels::Ffe1,
-        plumbob::FfeLevels::Ffe2 => FfeLevels::Ffe2,
-        plumbob::FfeLevels::Ffe3 => FfeLevels::Ffe3,
-        plumbob::FfeLevels::Ffe4 => FfeLevels::Ffe4,
-        plumbob::FfeLevels::Ffe5 => FfeLevels::Ffe5,
-        plumbob::FfeLevels::Ffe6 => FfeLevels::Ffe6,
-        plumbob::FfeLevels::Ffe7 => FfeLevels::Ffe7,
-    }
+    // plumbob 0.1 levels are 0–7, which always fit the 4-bit field.
+    FfeLevels::new(f as u8).unwrap_or_default()
 }
 
 /// Projects the per-lane requests onto plumbob 0.1's single request.
@@ -97,7 +90,7 @@ mod tests {
 
     #[test]
     fn write_frl_config_rate_and_ffe() {
-        // Rate12Gbps4Lanes = discriminant 6; Ffe3 = 3 → bits[7:5] = 0b011 = 0x60
+        // Rate12Gbps4Lanes = discriminant 6; Ffe3 = 3 → bits[7:4] = 0x30
         let mut scdc = Scdc::new(TestTransport::new());
         ScdcClient::write_frl_config(
             &mut scdc,
@@ -108,11 +101,13 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(scdc.into_transport().get(0x30), 0x06 | 0x60);
+        let t = scdc.into_transport();
+        assert_eq!(t.get(0x31), 0x36);
+        assert_eq!(t.get(0x30), 0x00);
     }
 
     #[test]
-    fn write_frl_config_dsc_frl_max() {
+    fn write_frl_config_ignores_dsc_frl_max() {
         let mut scdc = Scdc::new(TestTransport::new());
         ScdcClient::write_frl_config(
             &mut scdc,
@@ -123,41 +118,37 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(scdc.into_transport().get(0x30), 0x10);
+        let t = scdc.into_transport();
+        assert_eq!(t.get(0x31), 0x00);
+        assert_eq!(t.get(0x35), 0x00);
     }
 
     #[test]
     fn write_frl_config_all_ffe_levels() {
         use FfeLevels::*;
-        for (ffe, expected_bits) in [
+        for (level, expected) in [
             (Ffe0, 0x00u8),
-            (Ffe1, 0x20),
-            (Ffe2, 0x40),
-            (Ffe3, 0x60),
-            (Ffe4, 0x80),
-            (Ffe5, 0xA0),
-            (Ffe6, 0xC0),
-            (Ffe7, 0xE0),
+            (Ffe1, 0x10),
+            (Ffe2, 0x20),
+            (Ffe3, 0x30),
+            (Ffe4, 0x40),
+            (Ffe5, 0x50),
+            (Ffe6, 0x60),
+            (Ffe7, 0x70),
         ] {
             let mut scdc = Scdc::new(TestTransport::new());
             ScdcClient::write_frl_config(
                 &mut scdc,
                 FrlConfig {
                     rate: HdmiForumFrl::NotSupported,
-                    ffe_levels: ffe,
+                    ffe_levels: level,
                     dsc_frl_max: false,
                 },
             )
             .unwrap();
-            assert_eq!(
-                scdc.into_transport().get(0x30),
-                expected_bits,
-                "ffe={ffe:?}"
-            );
+            assert_eq!(scdc.into_transport().get(0x31), expected, "{level:?}");
         }
     }
-
-    // --- read_training_status ---
 
     #[test]
     fn read_training_status_flt_ready() {

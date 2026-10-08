@@ -7,16 +7,13 @@ use crate::register::{Config0, FrlConfig, LtpReq, LtpRequests, SourceTestConfig,
 use super::Scdc;
 
 impl<T: ScdcTransport> Scdc<T> {
-    /// Writes FRL training configuration to `Config_0` (0x30).
+    /// Writes FRL training configuration to `Config_1` (0x31).
     ///
-    /// Encodes `FRL_Rate` into bits\[3:0\], `DSC_FRL_Max` into bit\[4\], and
-    /// `FFE_Levels` into bits\[7:5\].
+    /// Encodes `FRL_Rate` into bits\[3:0\] and `FFE_Levels` into bits\[7:4\].
     pub fn write_frl_config(&mut self, config: FrlConfig) -> Result<(), ScdcError<T::Error>> {
-        let byte = (config.frl_rate as u8)
-            | ((config.dsc_frl_max as u8) << 4)
-            | ((config.ffe_levels as u8) << 5);
+        let byte = (config.frl_rate as u8) | (config.ffe_levels.value() << 4);
         self.transport
-            .write(address::CONFIG_0, byte)
+            .write(address::CONFIG_1, byte)
             .map_err(ScdcError::Transport)
     }
 
@@ -99,23 +96,12 @@ mod tests {
         let mut scdc = Scdc::new(TestTransport::new());
         scdc.write_frl_config(FrlConfig {
             frl_rate: HdmiForumFrl::Rate12Gbps4Lanes, // discriminant 6
-            dsc_frl_max: false,
-            ffe_levels: FfeLevels::Ffe0,
+            ffe_levels: FfeLevels::default(),
         })
         .unwrap();
-        assert_eq!(scdc.into_transport().get(0x30), 0x06);
-    }
-
-    #[test]
-    fn frl_config_dsc_frl_max_field() {
-        let mut scdc = Scdc::new(TestTransport::new());
-        scdc.write_frl_config(FrlConfig {
-            frl_rate: HdmiForumFrl::NotSupported,
-            dsc_frl_max: true,
-            ffe_levels: FfeLevels::Ffe0,
-        })
-        .unwrap();
-        assert_eq!(scdc.into_transport().get(0x30), 0x10);
+        let t = scdc.into_transport();
+        assert_eq!(t.get(0x31), 0x06);
+        assert_eq!(t.get(0x30), 0x00); // Config_0 untouched
     }
 
     #[test]
@@ -123,11 +109,16 @@ mod tests {
         let mut scdc = Scdc::new(TestTransport::new());
         scdc.write_frl_config(FrlConfig {
             frl_rate: HdmiForumFrl::NotSupported,
-            dsc_frl_max: false,
-            ffe_levels: FfeLevels::Ffe7, // discriminant 7 → bits[7:5] = 0b111 = 0xE0
+            ffe_levels: FfeLevels::new(0xF).unwrap(), // → bits[7:4]
         })
         .unwrap();
-        assert_eq!(scdc.into_transport().get(0x30), 0xE0);
+        assert_eq!(scdc.into_transport().get(0x31), 0xF0);
+    }
+
+    #[test]
+    fn ffe_levels_range() {
+        assert_eq!(FfeLevels::new(15).map(FfeLevels::value), Some(15));
+        assert_eq!(FfeLevels::new(16), None);
     }
 
     #[test]
@@ -282,8 +273,7 @@ mod tests {
             Scdc::new(TestTransport::failing_after(0))
                 .write_frl_config(FrlConfig {
                     frl_rate: HdmiForumFrl::NotSupported,
-                    dsc_frl_max: false,
-                    ffe_levels: FfeLevels::Ffe0,
+                    ffe_levels: FfeLevels::default(),
                 })
                 .is_err()
         );

@@ -31,35 +31,35 @@ impl ScramblerStatus {
     }
 }
 
-/// FFE (Feed-Forward Equalization) level count written into `Config_0` bits\[5:3\].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FfeLevels {
-    /// No FFE levels.
-    Ffe0 = 0,
-    /// 1 FFE level.
-    Ffe1 = 1,
-    /// 2 FFE levels.
-    Ffe2 = 2,
-    /// 3 FFE levels.
-    Ffe3 = 3,
-    /// 4 FFE levels.
-    Ffe4 = 4,
-    /// 5 FFE levels.
-    Ffe5 = 5,
-    /// 6 FFE levels.
-    Ffe6 = 6,
-    /// 7 FFE levels.
-    Ffe7 = 7,
+/// FFE (Feed-Forward Equalization) levels written into `Config_1` bits\[7:4\].
+///
+/// A raw 4-bit value: the sources this register map is based on do not state the
+/// valid range, so any value that fits the field is accepted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct FfeLevels(u8);
+
+impl FfeLevels {
+    /// Constructs `FfeLevels`; `None` if `levels` does not fit the 4-bit field.
+    pub const fn new(levels: u8) -> Option<Self> {
+        if levels <= 0x0F {
+            Some(Self(levels))
+        } else {
+            None
+        }
+    }
+
+    /// Returns the raw 4-bit value.
+    pub const fn value(self) -> u8 {
+        self.0
+    }
 }
 
-/// Configuration written to `Config_0` (0x30).
+/// Configuration written to `Config_1` (0x31).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FrlConfig {
     /// FRL rate to request. Use [`HdmiForumFrl::NotSupported`] to clear FRL mode.
     pub frl_rate: HdmiForumFrl,
-    /// Request DSC at the maximum supported FRL rate (`DSC_FRL_Max`).
-    pub dsc_frl_max: bool,
-    /// Number of FFE levels to advertise to the sink.
+    /// FFE levels to advertise to the sink.
     pub ffe_levels: FfeLevels,
 }
 

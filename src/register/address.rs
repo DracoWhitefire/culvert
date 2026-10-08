@@ -18,6 +18,7 @@ pub(crate) const SCRAMBLER_STATUS: u8 = 0x21;
 
 // FRL configuration and status (§10.4.4)
 pub(crate) const CONFIG_0: u8 = 0x30;
+pub(crate) const CONFIG_1: u8 = 0x31;
 pub(crate) const SOURCE_TEST_CONFIG: u8 = 0x35;
 pub(crate) const STATUS_FLAGS_0: u8 = 0x40;
 pub(crate) const STATUS_FLAGS_1: u8 = 0x41;

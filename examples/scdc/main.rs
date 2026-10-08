@@ -131,11 +131,10 @@ fn main() {
     // Request 6 Gbps 3-lane FRL with 2 FFE levels.
     scdc.write_frl_config(FrlConfig {
         frl_rate: FrlRate::Rate6Gbps3Lanes,
-        dsc_frl_max: false,
-        ffe_levels: FfeLevels::Ffe2,
+        ffe_levels: FfeLevels::new(2).unwrap(),
     })
     .unwrap();
-    println!("Wrote Config_0: frl_rate=6G/3L, dsc_frl_max=false, ffe_levels=Ffe2");
+    println!("Wrote Config_1: frl_rate=6G/3L, ffe_levels=2");
 
     // Acknowledge the flt_update flag (write-1-to-clear).
     scdc.clear_update_flags(UpdateFlags::new(
