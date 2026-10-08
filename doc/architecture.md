@@ -96,8 +96,9 @@ see [Sources](#sources) for how each was established.
 - `Config_1` (0x31, W) — `FRL_Rate` (bits 3:0, maps to `HdmiForumFrl`) and
   `FFE_Levels` (bits 7:4). Written by the source to request a training rate.
 - `Source_Test_Configuration` (0x35, R) — written by the sink (compliance testing) to
-  instruct the source: `FLT_No_Timeout` (bit 5) and `DSC_FRL_Max` (bit 6). Read by the
-  source when `Source_Test_Update` is set.
+  instruct the source: `TxFFE_Pre_Shoot_Only` (bit 1), `TxFFE_De_Emphasis_Only` (bit 2),
+  `TxFFE_No_FFE` (bit 3), `FLT_No_Timeout` (bit 5), `DSC_FRL_Max` (bit 6) and `FRL_Max`
+  (bit 7). Read by the source when `Source_Test_Update` is set.
 
 **Status** (0x40–0x42)
 - `Status_Flags_0` (0x40, R) — `Clock_Detected` (bit 0), `Ch0_Locked` (bit 1),
@@ -228,8 +229,12 @@ pub struct FrlConfig {
 
 /// `Source_Test_Configuration` (0x35), written by the sink.
 pub struct SourceTestConfig {
-    pub flt_no_timeout: bool,   // bit 5
-    pub dsc_frl_max: bool,      // bit 6
+    pub txffe_pre_shoot_only: bool,     // bit 1
+    pub txffe_de_emphasis_only: bool,   // bit 2
+    pub txffe_no_ffe: bool,             // bit 3
+    pub flt_no_timeout: bool,           // bit 5
+    pub dsc_frl_max: bool,              // bit 6
+    pub frl_max: bool,                  // bit 7
 }
 
 /// Link Training Pattern requested by the sink for one lane (a 4-bit field in

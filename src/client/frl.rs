@@ -33,8 +33,12 @@ impl<T: ScdcTransport> Scdc<T> {
             .read(address::SOURCE_TEST_CONFIG)
             .map_err(ScdcError::Transport)?;
         Ok(SourceTestConfig {
+            txffe_pre_shoot_only: byte & 0x02 != 0,
+            txffe_de_emphasis_only: byte & 0x04 != 0,
+            txffe_no_ffe: byte & 0x08 != 0,
             flt_no_timeout: byte & 0x20 != 0,
             dsc_frl_max: byte & 0x40 != 0,
+            frl_max: byte & 0x80 != 0,
         })
     }
 
@@ -260,11 +264,27 @@ mod tests {
             sim.set(0x35, byte);
             Scdc::new(sim).read_source_test_config().unwrap()
         };
-        assert_eq!(read(0x00), SourceTestConfig::new(false, false));
-        assert_eq!(read(0x20), SourceTestConfig::new(true, false));
-        assert_eq!(read(0x40), SourceTestConfig::new(false, true));
-        // Other bits are not defined and set no field.
-        assert_eq!(read(0x9F), SourceTestConfig::new(false, false));
+        let fields = |c: SourceTestConfig| {
+            [
+                c.txffe_pre_shoot_only,
+                c.txffe_de_emphasis_only,
+                c.txffe_no_ffe,
+                c.flt_no_timeout,
+                c.dsc_frl_max,
+                c.frl_max,
+            ]
+        };
+        for (i, bit) in [1u8, 2, 3, 5, 6, 7].into_iter().enumerate() {
+            let mut expected = [false; 6];
+            expected[i] = true;
+            assert_eq!(fields(read(1 << bit)), expected, "bit {bit}");
+        }
+        // Bits 0 and 4 are reserved and set no field.
+        assert_eq!(read(0x11), read(0x00));
+        assert_eq!(
+            read(0x00),
+            SourceTestConfig::new(false, false, false, false, false, false)
+        );
     }
 
     #[test]

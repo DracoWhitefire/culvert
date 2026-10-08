@@ -78,22 +78,41 @@ pub struct Config0 {
 /// Decoded content of `Source_Test_Configuration` (0x35).
 ///
 /// Written by the sink, typically during compliance testing, to instruct the source.
-/// Read it when [`UpdateFlags::source_test_update`] is set.
+/// Read it when [`UpdateFlags::source_test_update`] is set. Bits 0 and 4 are reserved.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SourceTestConfig {
+    /// Bit 1: use pre-shoot only for TxFFE.
+    pub txffe_pre_shoot_only: bool,
+    /// Bit 2: use de-emphasis only for TxFFE.
+    pub txffe_de_emphasis_only: bool,
+    /// Bit 3: use no TxFFE.
+    pub txffe_no_ffe: bool,
     /// Bit 5: the source should not time out link training.
     pub flt_no_timeout: bool,
     /// Bit 6: the source should use the maximum FRL rate with DSC.
     pub dsc_frl_max: bool,
+    /// Bit 7: the source should use the maximum FRL rate.
+    pub frl_max: bool,
 }
 
 impl SourceTestConfig {
     /// Constructs `SourceTestConfig` from its flags, in bit order.
-    pub fn new(flt_no_timeout: bool, dsc_frl_max: bool) -> Self {
+    pub fn new(
+        txffe_pre_shoot_only: bool,
+        txffe_de_emphasis_only: bool,
+        txffe_no_ffe: bool,
+        flt_no_timeout: bool,
+        dsc_frl_max: bool,
+        frl_max: bool,
+    ) -> Self {
         Self {
+            txffe_pre_shoot_only,
+            txffe_de_emphasis_only,
+            txffe_no_ffe,
             flt_no_timeout,
             dsc_frl_max,
+            frl_max,
         }
     }
 }
