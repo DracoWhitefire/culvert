@@ -2,7 +2,7 @@ use hdmi_hal::scdc::ScdcTransport;
 
 use crate::error::{ProtocolError, ScdcError};
 use crate::register::address;
-use crate::register::{FrlConfig, LtpReq, LtpRequests, StatusFlags};
+use crate::register::{Config0, FrlConfig, LtpReq, LtpRequests, SourceTestConfig, StatusFlags};
 
 use super::Scdc;
 
@@ -18,6 +18,27 @@ impl<T: ScdcTransport> Scdc<T> {
         self.transport
             .write(address::CONFIG_0, byte)
             .map_err(ScdcError::Transport)
+    }
+
+    /// Writes `Config_0` (0x30): `RR_Enable` (bit 0) and `FLT_No_Retrain` (bit 1).
+    pub fn write_config_0(&mut self, config: Config0) -> Result<(), ScdcError<T::Error>> {
+        let byte = (config.rr_enable as u8) | ((config.flt_no_retrain as u8) << 1);
+        self.transport
+            .write(address::CONFIG_0, byte)
+            .map_err(ScdcError::Transport)
+    }
+
+    /// Reads `Source_Test_Configuration` (0x35), written by the sink to instruct the
+    /// source during compliance testing.
+    pub fn read_source_test_config(&mut self) -> Result<SourceTestConfig, ScdcError<T::Error>> {
+        let byte = self
+            .transport
+            .read(address::SOURCE_TEST_CONFIG)
+            .map_err(ScdcError::Transport)?;
+        Ok(SourceTestConfig {
+            flt_no_timeout: byte & 0x20 != 0,
+            dsc_frl_max: byte & 0x40 != 0,
+        })
     }
 
     /// Reads `Status_Flags_0` (0x40): clock detection, lane lock, `FLT_Ready` and DSC
@@ -70,7 +91,7 @@ mod tests {
     use super::super::Scdc;
     use super::super::test_transport::TestTransport;
     use crate::error::{ProtocolError, ScdcError};
-    use crate::register::{FfeLevels, FrlConfig, LtpReq, StatusFlags};
+    use crate::register::{Config0, FfeLevels, FrlConfig, LtpReq, SourceTestConfig, StatusFlags};
     use display_types::HdmiForumFrl;
 
     #[test]
@@ -210,6 +231,52 @@ mod tests {
     }
 
     #[test]
+    fn config_0_bits() {
+        for (config, expected) in [
+            (Config0::default(), 0x00u8),
+            (
+                Config0 {
+                    rr_enable: true,
+                    flt_no_retrain: false,
+                },
+                0x01,
+            ),
+            (
+                Config0 {
+                    rr_enable: false,
+                    flt_no_retrain: true,
+                },
+                0x02,
+            ),
+            (
+                Config0 {
+                    rr_enable: true,
+                    flt_no_retrain: true,
+                },
+                0x03,
+            ),
+        ] {
+            let mut scdc = Scdc::new(TestTransport::new());
+            scdc.write_config_0(config).unwrap();
+            assert_eq!(scdc.into_transport().get(0x30), expected, "{config:?}");
+        }
+    }
+
+    #[test]
+    fn source_test_config_bits() {
+        let read = |byte: u8| {
+            let mut sim = TestTransport::new();
+            sim.set(0x35, byte);
+            Scdc::new(sim).read_source_test_config().unwrap()
+        };
+        assert_eq!(read(0x00), SourceTestConfig::new(false, false));
+        assert_eq!(read(0x20), SourceTestConfig::new(true, false));
+        assert_eq!(read(0x40), SourceTestConfig::new(false, true));
+        // Other bits are not defined and set no field.
+        assert_eq!(read(0x9F), SourceTestConfig::new(false, false));
+    }
+
+    #[test]
     fn transport_error_propagates() {
         assert!(
             Scdc::new(TestTransport::failing_after(0))
@@ -223,6 +290,16 @@ mod tests {
         assert!(
             Scdc::new(TestTransport::failing_after(0))
                 .read_status_flags()
+                .is_err()
+        );
+        assert!(
+            Scdc::new(TestTransport::failing_after(0))
+                .write_config_0(Config0::default())
+                .is_err()
+        );
+        assert!(
+            Scdc::new(TestTransport::failing_after(0))
+                .read_source_test_config()
                 .is_err()
         );
         // First (Status_Flags_1) and second (Status_Flags_2) read of the LTP requests.

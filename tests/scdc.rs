@@ -6,7 +6,8 @@
 
 use core::convert::Infallible;
 use culvert::{
-    FfeLevels, FrlConfig, FrlRate, LtpReq, ProtocolError, Scdc, ScdcError, TmdsConfig, UpdateFlags,
+    Config0, FfeLevels, FrlConfig, FrlRate, LtpReq, ProtocolError, Scdc, ScdcError, TmdsConfig,
+    UpdateFlags,
 };
 use hdmi_hal::scdc::ScdcTransport;
 
@@ -106,6 +107,23 @@ fn write_frl_config_encodes_bits() {
 
     // 0x03 | 0x10 | (3 << 5) = 0x03 | 0x10 | 0x60 = 0x73
     assert_eq!(scdc.into_transport().get(0x30), 0x73);
+}
+
+#[test]
+fn write_config_0_and_read_source_test_config() {
+    let mut transport = SimulatedScdc::new();
+    transport.set(0x35, 0x60); // FLT_No_Timeout (bit 5) | DSC_FRL_Max (bit 6)
+    let mut scdc = Scdc::new(transport);
+
+    scdc.write_config_0(Config0 {
+        rr_enable: false,
+        flt_no_retrain: true,
+    })
+    .unwrap();
+    let test_config = scdc.read_source_test_config().unwrap();
+    assert!(test_config.flt_no_timeout);
+    assert!(test_config.dsc_frl_max);
+    assert_eq!(scdc.into_transport().get(0x30), 0x02);
 }
 
 #[test]

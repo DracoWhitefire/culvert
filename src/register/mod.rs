@@ -63,6 +63,41 @@ pub struct FrlConfig {
     pub ffe_levels: FfeLevels,
 }
 
+/// Content written to `Config_0` (0x30).
+///
+/// [`Scdc::write_config_0`](crate::Scdc::write_config_0) writes the whole register, so
+/// both fields are always set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Config0 {
+    /// Bit 0: the sink may raise read requests.
+    pub rr_enable: bool,
+    /// Bit 1: the sink should not request link retraining.
+    pub flt_no_retrain: bool,
+}
+
+/// Decoded content of `Source_Test_Configuration` (0x35).
+///
+/// Written by the sink, typically during compliance testing, to instruct the source.
+/// Read it when [`UpdateFlags::source_test_update`] is set.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceTestConfig {
+    /// Bit 5: the source should not time out link training.
+    pub flt_no_timeout: bool,
+    /// Bit 6: the source should use the maximum FRL rate with DSC.
+    pub dsc_frl_max: bool,
+}
+
+impl SourceTestConfig {
+    /// Constructs `SourceTestConfig` from its flags, in bit order.
+    pub fn new(flt_no_timeout: bool, dsc_frl_max: bool) -> Self {
+        Self {
+            flt_no_timeout,
+            dsc_frl_max,
+        }
+    }
+}
+
 /// Link Training Pattern requested by the sink for one lane: a 4-bit field in
 /// `Status_Flags_1` (0x41, lanes 0–1) or `Status_Flags_2` (0x42, lanes 2–3).
 ///
