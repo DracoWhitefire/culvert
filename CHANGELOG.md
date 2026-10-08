@@ -31,6 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `read_ced`; 60 s smoke runs on every PR/push, 1 h deep runs on a weekly
   schedule, with automatic corpus minimisation and corpus-update PRs.
 
+### Internal
+
+- **Automated publish can be triggered by `release-tag`** — `publish.yml` gains a
+  `workflow_dispatch` trigger. Tags pushed with `GITHUB_TOKEN` do not start push-triggered
+  workflows, so `release-tag`'s "Trigger publish workflow" step
+  (`gh workflow run publish.yml`) could not start a publish run. Dispatches against a
+  non-tag ref (e.g. `main`) are skipped, so they cannot publish or create a release.
+
 ## [0.1.2] - 2026-04-05
 
 ### Changed
