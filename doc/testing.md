@@ -52,13 +52,6 @@ Coverage is complementary: unit tests cover all branches and error paths; integr
 tests confirm end-to-end bit patterns for each register group with realistic multi-field
 values.
 
-### plumbob feature tests (`src/client/plumbob_client.rs`)
-
-When compiled with `--features plumbob`, additional tests exercise the `ScdcClient`
-implementation. These call methods through the `plumbob::ScdcClient` trait and assert
-that the type conversions between culvert and plumbob's owned types are correct. Error
-propagation through the trait boundary is also covered.
-
 ## Coverage
 
 CI measures line coverage with `cargo-llvm-cov`. The baseline is stored in

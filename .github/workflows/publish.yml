@@ -75,9 +75,6 @@ jobs:
       - name: Test
         run: cargo test --locked
 
-      - name: Test (plumbob feature)
-        run: cargo test --locked --features plumbob
-
       # Materialise the .crate package before signing; cargo publish would
       # do this internally, but we need the file path for the attestation.
       - name: Package crate

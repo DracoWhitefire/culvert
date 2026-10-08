@@ -350,28 +350,16 @@ belongs in culvert.
 
 ## The `plumbob` Feature
 
-culvert implements `plumbob::ScdcClient` for `Scdc<T>`, gated behind a `plumbob` cargo
-feature. This follows the same convention as `serde` feature flags in the ecosystem: the
-producing crate reaches toward the consuming crate's trait, rather than the consumer
-depending on the producer.
+culvert implements `plumbob::ScdcClient` for `Scdc<T>` behind a `plumbob` cargo feature.
+This follows the same convention as `serde` feature flags in the ecosystem: the producing
+crate reaches toward the consuming crate's trait, rather than the consumer depending on
+the producer.
 
-```toml
-# Cargo.toml of a crate using both
-culvert  = { version = "0.1", features = ["plumbob"] }
-plumbob  = "0.1"
-```
-
-The impl converts between culvert's internal types and plumbob's owned types:
-
-- `culvert::StatusFlags`, `UpdateFlags` and `LtpRequests` → `plumbob::TrainingStatus`
-  (projecting `flt_ready`, `frl_start`, `flt_update` and the per-lane requests; the
-  `ScdcClient` trait changes with plumbob's LTS:3 rework)
-- `culvert::FrlConfig` ← `plumbob::FrlConfig` (field-for-field, with `LtpReq` conversion)
-- `culvert::CedCounters` → `plumbob::CedCounters` (same structure, different type paths)
-
-culvert's richer `StatusFlags` (lane lock bits, clock detection, DSC decode failure) is not
-exposed through `ScdcClient` — plumbob defines only what the training state machine
-needs. Callers that need the full register set use `Scdc<T>` directly.
+The feature is **temporarily removed**. plumbob 0.1's `ScdcClient` models a single link
+training pattern request and waits for `FRL_Start` before the pattern loop, which does not
+match the corrected register map (per-lane requests, `FLT_Update`-driven training,
+`FRL_Start` only after training passes). It returns once plumbob's training state machine
+follows LTS:2 → LTS:3 → LTS:P with per-lane requests.
 
 ---
 
@@ -393,8 +381,9 @@ The full API is available in bare `no_std` environments.
 - **Interface owned by the consumer.** The `ScdcClient` trait that culvert implements is
   defined in `plumbob`, not here. culvert implements the trait; it does not define it.
   This means the link training layer can swap culvert for any other `ScdcClient`
-  implementation without touching culvert. The `plumbob` cargo feature gates the impl
-  so culvert remains independently usable without the link training layer as a dependency.
+  implementation without touching culvert. The `plumbob` cargo feature (temporarily
+  removed, see above) gates the impl so culvert remains independently usable without the
+  link training layer as a dependency.
 - **Spec accuracy and completeness.** All SCDC-defined registers are implemented. No
   register is omitted because its consumer has not been built yet. What is needed for
   0.1.0 ships in 0.1.0; the rest is tracked on the roadmap.
