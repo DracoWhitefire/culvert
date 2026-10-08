@@ -52,14 +52,14 @@ fn main() {
     transport.set(0x21, 0x01);
 
     // Status_Flags_0:
-    //   clock_detected (bit 0) | cable_connected (bit 1) | ch0–ch2 locked (bits 2–4) | flt_ready (bit 6)
-    //   = 0b0101_0111 = 0x57
-    transport.set(0x40, 0x57);
+    //   clock_detected (bit 0) | ch0–ch2 locked (bits 1–3) | flt_ready (bit 6)
+    //   = 0b0100_1111 = 0x4F
+    transport.set(0x40, 0x4F);
 
-    // Status_Flags_1:
-    //   frl_start (bit 0) | LTP_Req = Lfsr2 (nibble 3 in bits[7:4])
-    //   = 0b0011_0001 = 0x31
-    transport.set(0x41, 0x31);
+    // Status_Flags_1 / Status_Flags_2: per-lane LTP requests
+    //   lanes 0–2 request LFSR 2 (0x7); lane 3 is unused in 3-lane FRL
+    transport.set(0x41, 0x77);
+    transport.set(0x42, 0x07);
 
     // Update_0: flt_update (bit 5) set — sink reports new link training pattern requests
     transport.set(0x10, 0x20);
@@ -90,14 +90,17 @@ fn main() {
 
     let flags = scdc.read_status_flags().unwrap();
     println!("Clock detected:     {}", flags.clock_detected);
-    println!("Cable connected:    {}", flags.cable_connected);
     println!(
-        "Lane lock:          ch0={} ch1={} ch2={} ch3={}",
-        flags.ch0_locked, flags.ch1_locked, flags.ch2_locked, flags.ch3_locked
+        "Lane lock:          ch0={} ch1={} ch2={} ln3={}",
+        flags.ch0_locked, flags.ch1_locked, flags.ch2_locked, flags.ln3_locked
     );
     println!("FLT_Ready:          {}", flags.flt_ready);
-    println!("FRL_Start:          {}", flags.frl_start);
-    println!("LTP_Req:            {:?}", flags.ltp_req);
+
+    let requests = scdc.read_ltp_requests().unwrap();
+    println!(
+        "LTP requests:       {:?} {:?} {:?} {:?}",
+        requests.lane0, requests.lane1, requests.lane2, requests.lane3
+    );
 
     let updates = scdc.read_update_flags().unwrap();
     println!(

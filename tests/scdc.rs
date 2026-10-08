@@ -111,33 +111,44 @@ fn write_frl_config_encodes_bits() {
 #[test]
 fn read_status_flags_decodes_registers() {
     let mut transport = SimulatedScdc::new();
-    // clock_detected=1 ch0_locked=1 ch2_locked=1 flt_ready=1 → 0b0101_0101 = 0x55
-    transport.set(0x40, 0x55);
-    // frl_start=1, ltp_req=Lfsr1 (2) in bits[7:4] → 0b0010_0001 = 0x21
-    transport.set(0x41, 0x21);
+    // clock_detected (bit 0) | ch0_locked (bit 1) | ch2_locked (bit 3) | flt_ready (bit 6)
+    // → 0b0100_1011 = 0x4B
+    transport.set(0x40, 0x4B);
     let mut scdc = Scdc::new(transport);
 
     let flags = scdc.read_status_flags().unwrap();
     assert!(flags.clock_detected);
-    assert!(!flags.cable_connected);
     assert!(flags.ch0_locked);
     assert!(!flags.ch1_locked);
     assert!(flags.ch2_locked);
-    assert!(!flags.ch3_locked);
+    assert!(!flags.ln3_locked);
     assert!(flags.flt_ready);
-    assert!(flags.frl_start);
-    assert_eq!(flags.ltp_req, LtpReq::Lfsr1);
+    assert!(!flags.dsc_decode_fail);
 }
 
 #[test]
-fn read_status_flags_unknown_ltp_req() {
+fn read_ltp_requests_decodes_lanes() {
     let mut transport = SimulatedScdc::new();
-    transport.set(0x41, 0x50); // LTP_Req nibble = 5, undefined
+    transport.set(0x41, 0x76); // lane0 = LFSR1 (0x6), lane1 = LFSR2 (0x7)
+    transport.set(0x42, 0xE0); // lane2 = none, lane3 = FFE change (0xE)
+    let mut scdc = Scdc::new(transport);
+
+    let requests = scdc.read_ltp_requests().unwrap();
+    assert_eq!(requests.lane0, LtpReq::Lfsr1);
+    assert_eq!(requests.lane1, LtpReq::Lfsr2);
+    assert_eq!(requests.lane2, LtpReq::None);
+    assert_eq!(requests.lane3, LtpReq::FfeChange);
+}
+
+#[test]
+fn read_ltp_requests_unknown_value() {
+    let mut transport = SimulatedScdc::new();
+    transport.set(0x42, 0xA0); // lane 3 = 0xA, undefined
     let mut scdc = Scdc::new(transport);
 
     assert!(matches!(
-        scdc.read_status_flags(),
-        Err(ScdcError::Protocol(ProtocolError::UnknownLtpReq(5)))
+        scdc.read_ltp_requests(),
+        Err(ScdcError::Protocol(ProtocolError::UnknownLtpReq(0xA)))
     ));
 }
 

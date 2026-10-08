@@ -33,4 +33,9 @@ pub enum ProtocolError {
     /// semantic meaning — any value outside the spec-defined set is treated as a protocol
     /// violation regardless of its numeric value.
     UnknownLtpReq(u8),
+    /// The sink's per-lane link training pattern requests cannot be expressed through
+    /// the single-request `plumbob` 0.1 `ScdcClient` interface: the lanes request
+    /// different patterns, or a pattern outside the range that interface represents.
+    /// Returned only by the `plumbob` feature's adapter.
+    UnsupportedLtpRequests(crate::LtpRequests),
 }

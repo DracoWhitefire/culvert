@@ -3,8 +3,8 @@
 use hdmi_hal::scdc::ScdcTransport;
 use plumbob::ScdcClient;
 
-use crate::error::ScdcError;
-use crate::register::{CedCount, FfeLevels, FrlConfig, LtpReq};
+use crate::error::{ProtocolError, ScdcError};
+use crate::register::{CedCount, FfeLevels, FrlConfig, LtpReq, LtpRequests};
 
 use super::Scdc;
 
@@ -20,11 +20,13 @@ impl<T: ScdcTransport> ScdcClient for Scdc<T> {
     }
 
     fn read_training_status(&mut self) -> Result<plumbob::TrainingStatus, Self::Error> {
-        let f = self.read_status_flags()?;
+        let flags = self.read_status_flags()?;
+        let updates = self.read_update_flags()?;
+        let requests = self.read_ltp_requests()?;
         Ok(plumbob::TrainingStatus {
-            flt_ready: f.flt_ready,
-            frl_start: f.frl_start,
-            ltp_req: ltp_req(f.ltp_req),
+            flt_ready: flags.flt_ready,
+            frl_start: updates.frl_start,
+            ltp_req: ltp_req(requests).map_err(ScdcError::Protocol)?,
         })
     }
 
@@ -52,14 +54,31 @@ fn ffe_levels(f: plumbob::FfeLevels) -> FfeLevels {
     }
 }
 
-fn ltp_req(req: LtpReq) -> plumbob::LtpReq {
-    match req {
-        LtpReq::None => plumbob::LtpReq::None,
-        LtpReq::Lfsr0 => plumbob::LtpReq::Lfsr0,
-        LtpReq::Lfsr1 => plumbob::LtpReq::Lfsr1,
-        LtpReq::Lfsr2 => plumbob::LtpReq::Lfsr2,
-        LtpReq::Lfsr3 => plumbob::LtpReq::Lfsr3,
+/// Projects the per-lane requests onto plumbob 0.1's single request.
+///
+/// Interim mapping until plumbob handles per-lane requests: plumbob 0.1 passes its
+/// request to the PHY as the raw pattern number, and its variants cover the raw values
+/// 0–4. Requests are forwarded only when all lanes agree on such a value; anything
+/// else is reported instead of training with a wrong pattern.
+fn ltp_req(requests: LtpRequests) -> Result<plumbob::LtpReq, ProtocolError> {
+    let lanes = [
+        requests.lane0,
+        requests.lane1,
+        requests.lane2,
+        requests.lane3,
+    ];
+    let unsupported = || ProtocolError::UnsupportedLtpRequests(requests);
+    if lanes.iter().any(|l| *l != lanes[0]) {
+        return Err(unsupported());
     }
+    Ok(match lanes[0] {
+        LtpReq::None => plumbob::LtpReq::None,
+        LtpReq::AllOnes => plumbob::LtpReq::Lfsr0, // raw 1
+        LtpReq::AllZeros => plumbob::LtpReq::Lfsr1, // raw 2
+        LtpReq::NyquistClock => plumbob::LtpReq::Lfsr2, // raw 3
+        LtpReq::RxDdeCompliance => plumbob::LtpReq::Lfsr3, // raw 4
+        _ => return Err(unsupported()),
+    })
 }
 
 fn ced_count(c: CedCount) -> plumbob::CedCount {
@@ -70,6 +89,7 @@ fn ced_count(c: CedCount) -> plumbob::CedCount {
 mod tests {
     use super::super::Scdc;
     use super::super::test_transport::TestTransport;
+    use crate::error::{ProtocolError, ScdcError};
     use display_types::HdmiForumFrl;
     use plumbob::{FfeLevels, FrlConfig, LtpReq, ScdcClient};
 
@@ -142,7 +162,7 @@ mod tests {
     #[test]
     fn read_training_status_flt_ready() {
         let mut sim = TestTransport::new();
-        sim.set(0x40, 0x40); // flt_ready bit
+        sim.set(0x40, 0x40); // Status_Flags_0: FLT_Ready (bit 6)
         let status = Scdc::new(sim).read_training_status().unwrap();
         assert!(status.flt_ready);
         assert!(!status.frl_start);
@@ -152,15 +172,16 @@ mod tests {
     #[test]
     fn read_training_status_frl_start() {
         let mut sim = TestTransport::new();
-        sim.set(0x41, 0x01); // frl_start bit
+        sim.set(0x10, 0x10); // Update_0: FRL_Start (bit 4)
         let status = Scdc::new(sim).read_training_status().unwrap();
         assert!(!status.flt_ready);
         assert!(status.frl_start);
     }
 
     #[test]
-    fn read_training_status_ltp_req_variants() {
-        for (nibble, expected) in [
+    fn read_training_status_ltp_req_passes_raw_value() {
+        // plumbob 0.1 forwards its request to the PHY as the raw pattern number.
+        for (raw, expected) in [
             (0u8, LtpReq::None),
             (1, LtpReq::Lfsr0),
             (2, LtpReq::Lfsr1),
@@ -168,20 +189,51 @@ mod tests {
             (4, LtpReq::Lfsr3),
         ] {
             let mut sim = TestTransport::new();
-            sim.set(0x41, nibble << 4);
-            assert_eq!(
-                Scdc::new(sim).read_training_status().unwrap().ltp_req,
-                expected,
-                "nibble={nibble}"
-            );
+            sim.set(0x41, raw | (raw << 4));
+            sim.set(0x42, raw | (raw << 4));
+            let status = Scdc::new(sim).read_training_status().unwrap();
+            assert_eq!(status.ltp_req, expected, "raw={raw}");
+            assert_eq!(status.ltp_req as u8, raw);
+        }
+    }
+
+    #[test]
+    fn read_training_status_differing_lanes_is_error() {
+        let mut sim = TestTransport::new();
+        sim.set(0x41, 0x11); // lanes 0/1 = all ones
+        sim.set(0x42, 0x21); // lane 2 = all ones, lane 3 = all zeros
+        assert!(matches!(
+            Scdc::new(sim).read_training_status(),
+            Err(ScdcError::Protocol(ProtocolError::UnsupportedLtpRequests(
+                _
+            )))
+        ));
+    }
+
+    #[test]
+    fn read_training_status_unrepresentable_ltp_req_is_error() {
+        // LFSR 0 (0x5), FFE change (0xE) and rate change (0xF) on every lane.
+        for raw in [0x5u8, 0xE, 0xF] {
+            let mut sim = TestTransport::new();
+            sim.set(0x41, raw | (raw << 4));
+            sim.set(0x42, raw | (raw << 4));
+            assert!(matches!(
+                Scdc::new(sim).read_training_status(),
+                Err(ScdcError::Protocol(ProtocolError::UnsupportedLtpRequests(
+                    _
+                )))
+            ));
         }
     }
 
     #[test]
     fn read_training_status_unknown_ltp_req_is_error() {
         let mut sim = TestTransport::new();
-        sim.set(0x41, 5 << 4); // nibble 5 — undefined by spec
-        assert!(Scdc::new(sim).read_training_status().is_err());
+        sim.set(0x41, 0x09); // lane 0 = 0x9, undefined by the spec
+        assert!(matches!(
+            Scdc::new(sim).read_training_status(),
+            Err(ScdcError::Protocol(ProtocolError::UnknownLtpReq(9)))
+        ));
     }
 
     // --- read_ced ---

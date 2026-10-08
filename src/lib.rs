@@ -19,6 +19,6 @@ mod register;
 pub use client::Scdc;
 pub use error::{ProtocolError, ScdcError};
 pub use register::{
-    CedCount, CedCounters, FfeLevels, FrlConfig, FrlRate, LtpReq, ScramblerStatus, StatusFlags,
-    TmdsConfig, UpdateFlags,
+    CedCount, CedCounters, FfeLevels, FrlConfig, FrlRate, LtpReq, LtpRequests, ScramblerStatus,
+    StatusFlags, TmdsConfig, UpdateFlags,
 };

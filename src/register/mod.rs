@@ -63,73 +63,134 @@ pub struct FrlConfig {
     pub ffe_levels: FfeLevels,
 }
 
-/// Link Training Pattern requested by the sink via `Status_Flags_1` bits\[7:4\].
+/// Link Training Pattern requested by the sink for one lane: a 4-bit field in
+/// `Status_Flags_1` (0x41, lanes 0–1) or `Status_Flags_2` (0x42, lanes 2–3).
 ///
-/// An undefined nibble value from the sink surfaces as
-/// [`ProtocolError::UnknownLtpReq`](crate::ProtocolError::UnknownLtpReq).
+/// An undefined value (0x9–0xD) surfaces as [`ProtocolError::UnknownLtpReq`](crate::ProtocolError::UnknownLtpReq).
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LtpReq {
-    /// No LTP requested; training is complete or not yet started.
-    None = 0,
-    /// Request LFSR0 training pattern on all active lanes.
-    Lfsr0 = 1,
-    /// Request LFSR1 training pattern on all active lanes.
-    Lfsr1 = 2,
-    /// Request LFSR2 training pattern on all active lanes.
-    Lfsr2 = 3,
-    /// Request LFSR3 training pattern on all active lanes.
-    Lfsr3 = 4,
+    /// 0x0: no pattern requested; the lane is trained.
+    None = 0x0,
+    /// 0x1: all-ones pattern.
+    AllOnes = 0x1,
+    /// 0x2: all-zeros pattern.
+    AllZeros = 0x2,
+    /// 0x3: Nyquist clock pattern.
+    NyquistClock = 0x3,
+    /// 0x4: Rx DDE compliance pattern.
+    RxDdeCompliance = 0x4,
+    /// 0x5: LFSR 0.
+    Lfsr0 = 0x5,
+    /// 0x6: LFSR 1.
+    Lfsr1 = 0x6,
+    /// 0x7: LFSR 2.
+    Lfsr2 = 0x7,
+    /// 0x8: LFSR 3.
+    Lfsr3 = 0x8,
+    /// 0xE: the sink requests a change of FFE level.
+    FfeChange = 0xE,
+    /// 0xF: the sink requests a lower FRL rate.
+    RateChange = 0xF,
 }
 
-/// Decoded content of `Status_Flags_0` (0x40) and `Status_Flags_1` (0x41).
+impl LtpReq {
+    /// Decodes a 4-bit LTP request field; `None` for undefined values.
+    pub(crate) fn from_nibble(nibble: u8) -> Option<Self> {
+        Some(match nibble {
+            0x0 => Self::None,
+            0x1 => Self::AllOnes,
+            0x2 => Self::AllZeros,
+            0x3 => Self::NyquistClock,
+            0x4 => Self::RxDdeCompliance,
+            0x5 => Self::Lfsr0,
+            0x6 => Self::Lfsr1,
+            0x7 => Self::Lfsr2,
+            0x8 => Self::Lfsr3,
+            0xE => Self::FfeChange,
+            0xF => Self::RateChange,
+            _ => return None,
+        })
+    }
+}
+
+/// Per-lane link training pattern requests from `Status_Flags_1` (0x41) and
+/// `Status_Flags_2` (0x42).
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LtpRequests {
+    /// Lane 0 (`Status_Flags_1` bits 3:0).
+    pub lane0: LtpReq,
+    /// Lane 1 (`Status_Flags_1` bits 7:4).
+    pub lane1: LtpReq,
+    /// Lane 2 (`Status_Flags_2` bits 3:0).
+    pub lane2: LtpReq,
+    /// Lane 3 (`Status_Flags_2` bits 7:4); `LtpReq::None` in 3-lane FRL.
+    pub lane3: LtpReq,
+}
+
+impl LtpRequests {
+    /// Constructs `LtpRequests` from the per-lane requests.
+    pub fn new(lane0: LtpReq, lane1: LtpReq, lane2: LtpReq, lane3: LtpReq) -> Self {
+        Self {
+            lane0,
+            lane1,
+            lane2,
+            lane3,
+        }
+    }
+
+    /// Returns `true` when no lane requests a pattern, i.e. link training passed.
+    pub fn all_trained(&self) -> bool {
+        [self.lane0, self.lane1, self.lane2, self.lane3]
+            .iter()
+            .all(|r| *r == LtpReq::None)
+    }
+}
+
+/// Decoded content of `Status_Flags_0` (0x40).
+///
+/// The per-lane link training pattern requests live in `Status_Flags_1`/`_2` and are
+/// read separately with [`Scdc::read_ltp_requests`](crate::Scdc::read_ltp_requests);
+/// `FRL_Start` is an `Update_0` flag ([`UpdateFlags::frl_start`]).
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StatusFlags {
-    /// A TMDS or FRL clock signal is detected on the cable.
+    /// Bit 0: the sink detects a clock.
     pub clock_detected: bool,
-    /// A cable is detected on the HDMI connector.
-    pub cable_connected: bool,
-    /// Lane 0 has achieved symbol lock.
+    /// Bit 1: channel 0 locked.
     pub ch0_locked: bool,
-    /// Lane 1 has achieved symbol lock.
+    /// Bit 2: channel 1 locked.
     pub ch1_locked: bool,
-    /// Lane 2 has achieved symbol lock.
+    /// Bit 3: channel 2 locked.
     pub ch2_locked: bool,
-    /// Lane 3 has achieved symbol lock (FRL 4-lane only).
-    pub ch3_locked: bool,
-    /// The sink is ready to begin FRL link training (`FLT_Ready`).
+    /// Bit 4: lane 3 locked (FRL 4-lane only).
+    pub ln3_locked: bool,
+    /// Bit 6: the sink is ready for link training.
     pub flt_ready: bool,
-    /// The sink signals that FRL training may begin (`FRL_Start`).
-    pub frl_start: bool,
-    /// The link training pattern currently requested by the sink.
-    pub ltp_req: LtpReq,
+    /// Bit 7: the sink failed to decode the DSC stream.
+    pub dsc_decode_fail: bool,
 }
 
 impl StatusFlags {
-    /// Constructs a `StatusFlags`.
-    #[allow(clippy::too_many_arguments)]
+    /// Constructs `StatusFlags` from the `Status_Flags_0` flags, in bit order.
     pub fn new(
         clock_detected: bool,
-        cable_connected: bool,
         ch0_locked: bool,
         ch1_locked: bool,
         ch2_locked: bool,
-        ch3_locked: bool,
+        ln3_locked: bool,
         flt_ready: bool,
-        frl_start: bool,
-        ltp_req: LtpReq,
+        dsc_decode_fail: bool,
     ) -> Self {
         Self {
             clock_detected,
-            cable_connected,
             ch0_locked,
             ch1_locked,
             ch2_locked,
-            ch3_locked,
+            ln3_locked,
             flt_ready,
-            frl_start,
-            ltp_req,
+            dsc_decode_fail,
         }
     }
 }
@@ -256,149 +317,50 @@ mod tests {
         assert_eq!(CedCount::new(0x7FFF).value(), 0x7FFF);
     }
 
-    fn status_flags_all_false() -> StatusFlags {
-        StatusFlags::new(
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            LtpReq::None,
-        )
+    #[test]
+    fn status_flags_new_field_order() {
+        // Each parameter maps to the named field for its Status_Flags_0 bit, in bit order.
+        let all = |f: StatusFlags| {
+            [
+                f.clock_detected,
+                f.ch0_locked,
+                f.ch1_locked,
+                f.ch2_locked,
+                f.ln3_locked,
+                f.flt_ready,
+                f.dsc_decode_fail,
+            ]
+        };
+        for i in 0..7 {
+            let mut args = [false; 7];
+            args[i] = true;
+            let f = StatusFlags::new(
+                args[0], args[1], args[2], args[3], args[4], args[5], args[6],
+            );
+            assert_eq!(all(f), args, "parameter {i}");
+        }
     }
 
     #[test]
-    fn status_flags_new_field_order() {
+    fn ltp_req_from_nibble_covers_defined_values() {
+        let defined = [0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0xE, 0xF];
+        for n in 0u8..=0xF {
+            let decoded = LtpReq::from_nibble(n);
+            assert_eq!(decoded.is_some(), defined.contains(&n), "nibble {n:#x}");
+            if let Some(req) = decoded {
+                assert_eq!(req as u8, n);
+            }
+        }
+    }
+
+    #[test]
+    fn ltp_requests_all_trained() {
         assert!(
-            StatusFlags::new(
-                true,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                LtpReq::None
-            )
-            .clock_detected
+            LtpRequests::new(LtpReq::None, LtpReq::None, LtpReq::None, LtpReq::None).all_trained()
         );
         assert!(
-            StatusFlags::new(
-                false,
-                true,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                LtpReq::None
-            )
-            .cable_connected
-        );
-        assert!(
-            StatusFlags::new(
-                false,
-                false,
-                true,
-                false,
-                false,
-                false,
-                false,
-                false,
-                LtpReq::None
-            )
-            .ch0_locked
-        );
-        assert!(
-            StatusFlags::new(
-                false,
-                false,
-                false,
-                true,
-                false,
-                false,
-                false,
-                false,
-                LtpReq::None
-            )
-            .ch1_locked
-        );
-        assert!(
-            StatusFlags::new(
-                false,
-                false,
-                false,
-                false,
-                true,
-                false,
-                false,
-                false,
-                LtpReq::None
-            )
-            .ch2_locked
-        );
-        assert!(
-            StatusFlags::new(
-                false,
-                false,
-                false,
-                false,
-                false,
-                true,
-                false,
-                false,
-                LtpReq::None
-            )
-            .ch3_locked
-        );
-        assert!(
-            StatusFlags::new(
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                true,
-                false,
-                LtpReq::None
-            )
-            .flt_ready
-        );
-        assert!(
-            StatusFlags::new(
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                true,
-                LtpReq::None
-            )
-            .frl_start
-        );
-        assert_eq!(status_flags_all_false().ltp_req, LtpReq::None);
-        assert_eq!(
-            StatusFlags::new(
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                LtpReq::Lfsr2
-            )
-            .ltp_req,
-            LtpReq::Lfsr2
+            !LtpRequests::new(LtpReq::None, LtpReq::None, LtpReq::None, LtpReq::Lfsr0)
+                .all_trained()
         );
     }
 

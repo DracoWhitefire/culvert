@@ -2,7 +2,7 @@ use hdmi_hal::scdc::ScdcTransport;
 
 use crate::error::{ProtocolError, ScdcError};
 use crate::register::address;
-use crate::register::{FrlConfig, LtpReq, StatusFlags};
+use crate::register::{FrlConfig, LtpReq, LtpRequests, StatusFlags};
 
 use super::Scdc;
 
@@ -20,39 +20,47 @@ impl<T: ScdcTransport> Scdc<T> {
             .map_err(ScdcError::Transport)
     }
 
-    /// Reads FRL status from `Status_Flags_0` (0x40) and `Status_Flags_1` (0x41).
-    ///
-    /// Returns [`crate::ProtocolError::UnknownLtpReq`] if the sink reports an
-    /// LTP request value not defined by the HDMI 2.1 specification.
+    /// Reads `Status_Flags_0` (0x40): clock detection, lane lock, `FLT_Ready` and DSC
+    /// decode failure.
     pub fn read_status_flags(&mut self) -> Result<StatusFlags, ScdcError<T::Error>> {
         let flags0 = self
             .transport
             .read(address::STATUS_FLAGS_0)
             .map_err(ScdcError::Transport)?;
+        Ok(StatusFlags {
+            clock_detected: flags0 & 0x01 != 0,
+            ch0_locked: flags0 & 0x02 != 0,
+            ch1_locked: flags0 & 0x04 != 0,
+            ch2_locked: flags0 & 0x08 != 0,
+            ln3_locked: flags0 & 0x10 != 0,
+            flt_ready: flags0 & 0x40 != 0,
+            dsc_decode_fail: flags0 & 0x80 != 0,
+        })
+    }
+
+    /// Reads the per-lane link training pattern requests from `Status_Flags_1` (0x41,
+    /// lanes 0–1) and `Status_Flags_2` (0x42, lanes 2–3).
+    ///
+    /// Returns [`crate::ProtocolError::UnknownLtpReq`] if any lane reports a value not
+    /// defined by the HDMI 2.1 specification.
+    pub fn read_ltp_requests(&mut self) -> Result<LtpRequests, ScdcError<T::Error>> {
         let flags1 = self
             .transport
             .read(address::STATUS_FLAGS_1)
             .map_err(ScdcError::Transport)?;
-
-        let ltp_req = match (flags1 >> 4) & 0x0F {
-            0 => LtpReq::None,
-            1 => LtpReq::Lfsr0,
-            2 => LtpReq::Lfsr1,
-            3 => LtpReq::Lfsr2,
-            4 => LtpReq::Lfsr3,
-            raw => return Err(ScdcError::Protocol(ProtocolError::UnknownLtpReq(raw))),
+        let flags2 = self
+            .transport
+            .read(address::STATUS_FLAGS_2)
+            .map_err(ScdcError::Transport)?;
+        let decode = |nibble: u8| {
+            LtpReq::from_nibble(nibble)
+                .ok_or(ScdcError::Protocol(ProtocolError::UnknownLtpReq(nibble)))
         };
-
-        Ok(StatusFlags {
-            clock_detected: flags0 & 0x01 != 0,
-            cable_connected: flags0 & 0x02 != 0,
-            ch0_locked: flags0 & 0x04 != 0,
-            ch1_locked: flags0 & 0x08 != 0,
-            ch2_locked: flags0 & 0x10 != 0,
-            ch3_locked: flags0 & 0x20 != 0,
-            flt_ready: flags0 & 0x40 != 0,
-            frl_start: flags1 & 0x01 != 0,
-            ltp_req,
+        Ok(LtpRequests {
+            lane0: decode(flags1 & 0x0F)?,
+            lane1: decode(flags1 >> 4)?,
+            lane2: decode(flags2 & 0x0F)?,
+            lane3: decode(flags2 >> 4)?,
         })
     }
 }
@@ -103,64 +111,102 @@ mod tests {
 
     #[test]
     fn status_flags_all_zero() {
-        let mut scdc = Scdc::new(TestTransport::new());
+        let f = Scdc::new(TestTransport::new()).read_status_flags().unwrap();
         assert_eq!(
-            scdc.read_status_flags().unwrap(),
+            f,
             StatusFlags {
                 clock_detected: false,
-                cable_connected: false,
                 ch0_locked: false,
                 ch1_locked: false,
                 ch2_locked: false,
-                ch3_locked: false,
+                ln3_locked: false,
                 flt_ready: false,
-                frl_start: false,
-                ltp_req: LtpReq::None,
+                dsc_decode_fail: false,
             }
         );
     }
 
     #[test]
-    fn status_flags_ltp_req_variants() {
-        for (nibble, expected) in [
-            (0u8, LtpReq::None),
-            (1, LtpReq::Lfsr0),
-            (2, LtpReq::Lfsr1),
-            (3, LtpReq::Lfsr2),
-            (4, LtpReq::Lfsr3),
+    fn status_flags_individual_bits() {
+        let read = |byte: u8| {
+            let mut sim = TestTransport::new();
+            sim.set(0x40, byte);
+            Scdc::new(sim).read_status_flags().unwrap()
+        };
+        assert!(read(0x01).clock_detected);
+        assert!(read(0x02).ch0_locked);
+        assert!(read(0x04).ch1_locked);
+        assert!(read(0x08).ch2_locked);
+        assert!(read(0x10).ln3_locked);
+        assert!(read(0x40).flt_ready);
+        assert!(read(0x80).dsc_decode_fail);
+        // Bit 5 is not defined; setting it alone sets no field.
+        assert_eq!(read(0x20), read(0x00));
+    }
+
+    #[test]
+    fn status_flags_reads_only_status_flags_0() {
+        let mut sim = TestTransport::new();
+        sim.set(0x41, 0xFF);
+        sim.set(0x42, 0xFF);
+        let f = Scdc::new(sim).read_status_flags().unwrap();
+        assert!(!f.flt_ready && !f.clock_detected);
+    }
+
+    #[test]
+    fn ltp_requests_per_lane() {
+        let mut sim = TestTransport::new();
+        sim.set(0x41, 0x65); // lane0 = 0x5 (LFSR0), lane1 = 0x6 (LFSR1)
+        sim.set(0x42, 0xF1); // lane2 = 0x1 (all ones), lane3 = 0xF (rate change)
+        let r = Scdc::new(sim).read_ltp_requests().unwrap();
+        assert_eq!(r.lane0, LtpReq::Lfsr0);
+        assert_eq!(r.lane1, LtpReq::Lfsr1);
+        assert_eq!(r.lane2, LtpReq::AllOnes);
+        assert_eq!(r.lane3, LtpReq::RateChange);
+        assert!(!r.all_trained());
+    }
+
+    #[test]
+    fn ltp_requests_all_defined_values() {
+        for (nibble, req) in [
+            (0x0u8, LtpReq::None),
+            (0x1, LtpReq::AllOnes),
+            (0x2, LtpReq::AllZeros),
+            (0x3, LtpReq::NyquistClock),
+            (0x4, LtpReq::RxDdeCompliance),
+            (0x5, LtpReq::Lfsr0),
+            (0x6, LtpReq::Lfsr1),
+            (0x7, LtpReq::Lfsr2),
+            (0x8, LtpReq::Lfsr3),
+            (0xE, LtpReq::FfeChange),
+            (0xF, LtpReq::RateChange),
         ] {
             let mut sim = TestTransport::new();
-            sim.set(0x41, nibble << 4);
-            assert_eq!(
-                Scdc::new(sim).read_status_flags().unwrap().ltp_req,
-                expected
-            );
+            sim.set(0x42, nibble << 4); // lane 3
+            assert_eq!(Scdc::new(sim).read_ltp_requests().unwrap().lane3, req);
         }
     }
 
     #[test]
-    fn status_flags_unknown_ltp_req() {
-        for nibble in 5u8..=15 {
+    fn ltp_requests_unknown_value() {
+        for nibble in 0x9u8..=0xD {
             let mut sim = TestTransport::new();
-            sim.set(0x41, nibble << 4);
+            sim.set(0x41, nibble); // lane 0
             assert!(matches!(
-                Scdc::new(sim).read_status_flags(),
+                Scdc::new(sim).read_ltp_requests(),
                 Err(ScdcError::Protocol(ProtocolError::UnknownLtpReq(n))) if n == nibble
             ));
         }
     }
 
     #[test]
-    fn status_flags_all_flags0_bits_set() {
-        // Ensures the true-branch of every flags0 bit expression is exercised.
-        let mut sim = TestTransport::new();
-        sim.set(0x40, 0x7F); // clock_detected | cable_connected | ch0–ch3_locked | flt_ready
-        sim.set(0x41, 0x01); // frl_start
-        let f = Scdc::new(sim).read_status_flags().unwrap();
-        assert!(f.clock_detected && f.cable_connected);
-        assert!(f.ch0_locked && f.ch1_locked && f.ch2_locked && f.ch3_locked);
-        assert!(f.flt_ready && f.frl_start);
-        assert_eq!(f.ltp_req, LtpReq::None);
+    fn ltp_requests_all_trained_when_zero() {
+        assert!(
+            Scdc::new(TestTransport::new())
+                .read_ltp_requests()
+                .unwrap()
+                .all_trained()
+        );
     }
 
     #[test]
@@ -174,17 +220,18 @@ mod tests {
                 })
                 .is_err()
         );
-        // First read of status flags fails.
         assert!(
             Scdc::new(TestTransport::failing_after(0))
                 .read_status_flags()
                 .is_err()
         );
-        // Second read (Status_Flags_1) fails.
-        assert!(
-            Scdc::new(TestTransport::failing_after(1))
-                .read_status_flags()
-                .is_err()
-        );
+        // First (Status_Flags_1) and second (Status_Flags_2) read of the LTP requests.
+        for n in 0..2 {
+            assert!(
+                Scdc::new(TestTransport::failing_after(n))
+                    .read_ltp_requests()
+                    .is_err()
+            );
+        }
     }
 }

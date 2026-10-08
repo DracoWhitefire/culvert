@@ -20,6 +20,7 @@ pub(crate) const SCRAMBLER_STATUS: u8 = 0x21;
 pub(crate) const CONFIG_0: u8 = 0x30;
 pub(crate) const STATUS_FLAGS_0: u8 = 0x40;
 pub(crate) const STATUS_FLAGS_1: u8 = 0x41;
+pub(crate) const STATUS_FLAGS_2: u8 = 0x42;
 
 // Character Error Detection (§10.4.5)
 pub(crate) const ERR_DET_0_L: u8 = 0x50;

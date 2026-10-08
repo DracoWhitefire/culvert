@@ -20,15 +20,18 @@ impl ScdcTransport for FuzzTransport {
 }
 
 fuzz_target!(|data: &[u8]| {
-    if data.len() < 2 {
+    if data.len() < 3 {
         return;
     }
 
     let mut regs = [0u8; 256];
     regs[0x40] = data[0]; // Status_Flags_0
-    regs[0x41] = data[1]; // Status_Flags_1
+    regs[0x41] = data[1]; // Status_Flags_1: LTP requests, lanes 0–1
+    regs[0x42] = data[2]; // Status_Flags_2: LTP requests, lanes 2–3
 
     let mut scdc = Scdc::new(FuzzTransport(regs));
-    // Must not panic; may return Ok(StatusFlags) or Err(ScdcError::Protocol(UnknownLtpReq(_))).
+    // Must not panic. read_status_flags has no error path; read_ltp_requests may return
+    // Err(ScdcError::Protocol(UnknownLtpReq(_))) for undefined values.
     let _ = scdc.read_status_flags();
+    let _ = scdc.read_ltp_requests();
 });
