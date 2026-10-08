@@ -42,17 +42,22 @@ scdc.write_tmds_config(TmdsConfig {
     high_tmds_clock_ratio: true,
 })?;
 
-// Request an FRL rate
-scdc.write_frl_config(FrlConfig {
-    frl_rate: FrlRate::Rate12Gbps4Lanes,
-    ffe_levels: FfeLevels::Ffe3,
-    dsc_frl_max: false,
-})?;
-
-// Poll for training readiness
+// Wait for the sink to be ready, then request an FRL rate
 let flags = scdc.read_status_flags()?;
 if flags.flt_ready {
-    // sink is ready for the LTP loop
+    scdc.write_frl_config(FrlConfig {
+        frl_rate: FrlRate::Rate12Gbps4Lanes,
+        ffe_levels: FfeLevels::new(3).unwrap(),
+    })?;
+}
+
+// On FLT_Update, read the pattern each lane requests
+let updates = scdc.read_update_flags()?;
+if updates.flt_update {
+    let requests = scdc.read_ltp_requests()?;
+    if requests.all_trained() {
+        // training passed; wait for FRL_Start in the update flags
+    }
 }
 
 // Read per-lane character error counts
@@ -78,14 +83,18 @@ plumbob  = "0.1"
 | Register group            | Addresses   | Methods |
 |---------------------------|-------------|---------|
 | Version                   | 0x01–0x02   | `read_sink_version`, `write_source_version` |
-| Update flags              | 0x10–0x11   | `read_update_flags`, `clear_update_flags` |
+| Update flags              | 0x10        | `read_update_flags`, `clear_update_flags` |
 | TMDS / scrambling         | 0x20–0x21   | `write_tmds_config`, `read_scrambler_status` |
-| FRL config                | 0x30        | `write_frl_config` |
-| FRL status                | 0x40–0x41   | `read_status_flags` |
-| Character Error Detection | 0x50–0x57   | `read_ced` |
+| FRL config                | 0x30–0x31   | `write_config_0`, `write_frl_config` |
+| Source test configuration | 0x35        | `read_source_test_config` |
+| Status flags              | 0x40        | `read_status_flags` |
+| LTP requests              | 0x41–0x42   | `read_ltp_requests` |
+| Character Error Detection | 0x50–0x55, 0x57–0x58 | `read_ced` |
 
-Registers not yet covered (RS Correction counters, DSC status, manufacturer
-identification) are documented in [`doc/roadmap.md`](doc/roadmap.md).
+The register map and its sources are described in
+[`doc/architecture.md`](doc/architecture.md#the-scdc-register-map). Registers not yet
+covered (the CED checksum, RS correction counters, manufacturer identification) are
+documented in [`doc/roadmap.md`](doc/roadmap.md).
 
 ## Features
 
