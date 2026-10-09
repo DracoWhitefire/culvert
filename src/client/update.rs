@@ -1,27 +1,19 @@
 use hdmi_hal::scdc::ScdcTransport;
 
+use crate::codec;
 use crate::error::ScdcError;
 use crate::register::UpdateFlags;
-use crate::register::address;
 
 use super::Scdc;
 
 impl<T: ScdcTransport> Scdc<T> {
     /// Reads update flags from `Update_0` (0x10).
     pub fn read_update_flags(&mut self) -> Result<UpdateFlags, ScdcError<T::Error>> {
-        let u0 = self
+        let update_0 = self
             .transport
-            .read(address::UPDATE_0)
+            .read(codec::UPDATE_0)
             .map_err(ScdcError::Transport)?;
-        Ok(UpdateFlags {
-            status_update: u0 & 0x01 != 0,
-            ced_update: u0 & 0x02 != 0,
-            rr_test: u0 & 0x04 != 0,
-            source_test_update: u0 & 0x08 != 0,
-            frl_start: u0 & 0x10 != 0,
-            flt_update: u0 & 0x20 != 0,
-            rsed_update: u0 & 0x40 != 0,
-        })
+        Ok(codec::decode_update_flags(update_0))
     }
 
     /// Clears the specified update flags in `Update_0` (0x10).
@@ -30,14 +22,8 @@ impl<T: ScdcTransport> Scdc<T> {
     /// set to `false` are left unchanged. `rr_test` is never cleared: Read Request Test
     /// is the one update flag the source must not clear, so it is ignored here.
     pub fn clear_update_flags(&mut self, flags: UpdateFlags) -> Result<(), ScdcError<T::Error>> {
-        let u0 = (flags.status_update as u8)
-            | ((flags.ced_update as u8) << 1)
-            | ((flags.source_test_update as u8) << 3)
-            | ((flags.frl_start as u8) << 4)
-            | ((flags.flt_update as u8) << 5)
-            | ((flags.rsed_update as u8) << 6);
         self.transport
-            .write(address::UPDATE_0, u0)
+            .write(codec::UPDATE_0, codec::encode_clear_update_flags(flags))
             .map_err(ScdcError::Transport)
     }
 }

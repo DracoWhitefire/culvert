@@ -13,6 +13,7 @@
 #![deny(missing_docs)]
 
 mod client;
+pub mod codec;
 mod error;
 mod register;
 

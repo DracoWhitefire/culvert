@@ -1,7 +1,5 @@
 //! Typed SCDC register map: bitfield structs and typed values.
 
-pub(crate) mod address;
-
 use display_types::HdmiForumFrl;
 
 // Re-export for use in the public API.
