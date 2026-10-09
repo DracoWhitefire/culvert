@@ -90,6 +90,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **CI builds for a `no_std` target** — new `Build (no_std)` steps build the crate for
+  `thumbv7em-none-eabi`, with and without the `plumbob` feature. Nothing checked a
+  target without `std` before, so a dependency that enables `std` (as hdmi-hal did
+  through `display-types`) went unnoticed.
+  The publish workflow runs the same build steps.
 - **Automated publish can be triggered by `release-tag`** — `publish.yml` gains a
   `workflow_dispatch` trigger. Tags pushed with `GITHUB_TOKEN` do not start push-triggered
   workflows, so `release-tag`'s "Trigger publish workflow" step

@@ -441,7 +441,8 @@ Culvert requires no allocator. All output types are stack-allocated structs. The
 `ScdcError<E>` type requires no heap. `Scdc<T>` holds only the transport, which is
 caller-owned.
 
-The full API is available in bare `no_std` environments.
+The full API is available in bare `no_std` environments. CI builds the crate, with and
+without the `plumbob` feature, for `thumbv7em-none-eabi`, a target without `std`.
 
 ---
 
