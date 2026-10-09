@@ -42,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Minimum `hdmi-hal` version raised to 0.4.0**: culvert now requires `hdmi-hal >= 0.4.0`,
   which carries the `ScdcTransport::read` receiver change above.
+- **`display-types` updated to 0.4** — aligns with display-types 0.4 across the stack.
+  `FrlRate` (the re-exported `HdmiForumFrl`) is now display-types 0.4's type, the one
+  `hdmi-hal` and `plumbob` use.
 
 ### Fixed
 
