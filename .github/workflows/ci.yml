@@ -44,6 +44,9 @@ jobs:
       - name: Test
         run: cargo test --locked
 
+      - name: Test (plumbob feature)
+        run: cargo test --locked --features plumbob
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest

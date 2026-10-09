@@ -383,11 +383,37 @@ This follows the same convention as `serde` feature flags in the ecosystem: the 
 crate reaches toward the consuming crate's trait, rather than the consumer depending on
 the producer.
 
-The feature is **temporarily removed**. plumbob 0.1's `ScdcClient` models a single link
-training pattern request and waits for `FRL_Start` before the pattern loop, which does not
-match the corrected register map (per-lane requests, `FLT_Update`-driven training,
-`FRL_Start` only after training passes). It returns once plumbob's training state machine
-follows LTS:2 → LTS:3 → LTS:P with per-lane requests.
+```toml
+# Cargo.toml of a crate using both
+culvert  = { version = "0.1", features = ["plumbob"] }
+plumbob  = "0.1"
+```
+
+Each `ScdcClient` method calls one culvert method:
+
+| `ScdcClient` method | culvert method | Register |
+|---|---|---|
+| `read_flt_ready` | `read_status_flags().flt_ready` | `Status_Flags_0` (0x40) bit 6 |
+| `read_update_flags` | `read_update_flags` | `Update_0` (0x10) bits 3–5 |
+| `clear_update_flags` | `clear_update_flags` | `Update_0` (0x10), write 1 to clear |
+| `read_ltp_requests` | `read_ltp_requests` | `Status_Flags_1/2` (0x41/0x42) |
+| `read_source_test_config` | `read_source_test_config` | `Source_Test_Configuration` (0x35) |
+| `write_config_0_defaults` | `write_config_0(Config0::default())` | `Config_0` (0x30) |
+| `write_frl_config` | `write_frl_config` | `Config_1` (0x31) |
+| `read_ced` | `read_ced` | `ERR_DET` (0x50–0x55, 0x57–0x58) |
+
+`From` impls in the feature-gated module convert culvert's types to plumbob's owned types
+(`LtpReq`, `LtpRequests`, `UpdateFlags`, `SourceTestConfig`, `CedCount`, `CedCounters`)
+and plumbob's `UpdateFlags` and `FrlConfig` back for the writes. culvert's own types are
+unchanged, so culvert means the same thing with or without the feature. Only the fields
+training uses cross the boundary: clearing flags through `ScdcClient` writes only
+`Source_Test_Update`, `FRL_start` and `FLT_update`, and culvert's richer `StatusFlags`,
+`UpdateFlags` and `SourceTestConfig` stay available through `Scdc<T>` directly.
+`write_frl_config` keeps culvert's own FFE-levels check, which plumbob's per-rate limit
+already satisfies.
+
+`Scdc` holds no state and does not wait between calls. plumbob's poll limits assume one
+poll every 2 ms by default; the transport (or a wrapper around it) enforces that interval.
 
 ---
 
@@ -409,9 +435,8 @@ The full API is available in bare `no_std` environments.
 - **Interface owned by the consumer.** The `ScdcClient` trait that culvert implements is
   defined in `plumbob`, not here. culvert implements the trait; it does not define it.
   This means the link training layer can swap culvert for any other `ScdcClient`
-  implementation without touching culvert. The `plumbob` cargo feature (temporarily
-  removed, see above) gates the impl so culvert remains independently usable without the
-  link training layer as a dependency.
+  implementation without touching culvert. The `plumbob` cargo feature gates the impl
+  so culvert remains independently usable without the link training layer as a dependency.
 - **Spec accuracy and completeness.** Every field culvert decodes is checked against the
   sources listed with the register map. No register is omitted because its consumer has
   not been built yet; registers not wrapped yet (the CED checksum, `Update_1`,
