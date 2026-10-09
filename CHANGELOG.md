@@ -33,10 +33,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     removed, `Update_1` is no longer accessed, and `UpdateFlags::new` takes the seven
     flags in bit order. `clear_update_flags` never clears `rr_test`, which the source
     must not clear.
-- **`plumbob` feature removed for now.** plumbob 0.1's `ScdcClient` models a single link
-  training pattern request and waits for `FRL_Start` before training, which cannot work
-  with the corrected register map. The implementation returns once plumbob trains per
-  lane (LTS:2 → LTS:3 → LTS:P).
+- **The `plumbob` feature implements plumbob's per-lane `ScdcClient`.** plumbob 0.1's
+  interface (`read_training_status`, a single link training pattern request) could not
+  work with the corrected register map. `Scdc<T>` now implements the one-method-per-register
+  operation trait of plumbob's link training states (LTS:2 → LTS:3 → LTS:P):
+  `read_flt_ready` (`Status_Flags_0` bit 6), `read_update_flags` and `clear_update_flags`
+  (the `Update_0` training flags), `read_ltp_requests` (per lane),
+  `read_source_test_config` (`FLT_no_timeout`), `write_config_0_defaults`,
+  `write_frl_config` (`Config_1`) and `read_ced`. culvert's types convert to plumbob's
+  through `From` impls in the feature-gated module; culvert's own types are unchanged.
+  `Scdc` does not wait between polls: the poll interval plumbob's limits assume (2 ms by
+  default) belongs in the transport.
 
 ### Changed
 

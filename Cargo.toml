@@ -13,9 +13,13 @@ categories = ["hardware-support", "embedded", "no-std"]
 [package.metadata.docs.rs]
 all-features = true
 
+[features]
+plumbob = ["dep:plumbob"]
+
 [dependencies]
-display-types = { version = "0.3.1", default-features = false }
-hdmi-hal = { version = "0.4.0", default-features = false }
+display-types = { version = "0.4", default-features = false }
+hdmi-hal = { path = "../hdmi-hal-frl", default-features = false }
+plumbob = { path = "../plumbob-frl", optional = true }
 
 [dev-dependencies]
-hdmi-hal = { version = "0.4.0", default-features = false }
+hdmi-hal = { path = "../hdmi-hal-frl", default-features = false }
