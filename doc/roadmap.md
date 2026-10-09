@@ -8,10 +8,11 @@ these groups may be added in later releases.
 
 ## CED checksum (0x56)
 
-`ERR_DET_Checksum` (0x56) is a checksum over the CED registers. Its address is listed in
-`src/register/address.rs`, but culvert does not read or verify it yet. Verifying it would
-let `read_ced` detect a counter pair torn between two reads; reading the CED block in one
-transaction would need a multi-byte read in `hdmi-hal`'s `ScdcTransport`.
+`ERR_DET_Checksum` (0x56) is a checksum over the CED registers. Its address is
+`codec::ERR_DET_CHECKSUM`, but culvert does not read or verify it yet. Verifying it would
+let `read_ced` detect a counter pair torn between two reads. `hdmi-hal`'s
+`ScdcTransport::read_block` now allows reading the CED block in one transaction; using it,
+and deciding whether to verify the checksum then, is planned as its own change.
 
 ---
 

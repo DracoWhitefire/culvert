@@ -66,6 +66,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`culvert::codec`** — the register map without I/O: every register address culvert
+  accesses (and the CED checksum), `CED_REGISTERS`, and one encode or decode function per
+  register (`encode_tmds_config`, `decode_scrambler_status`, `decode_update_flags`,
+  `encode_clear_update_flags`, `encode_config_0`, `encode_config_1`,
+  `decode_source_test_config`, `decode_status_flags`, `decode_ltp_requests`, `decode_ced`,
+  `decode_rs_correction`). `Scdc<T>` now only performs the reads and writes and uses these;
+  `culvert-async` uses the same functions, so the sync and async clients share one
+  register map.
 - `write_config_0` and `Config0` (`RR_Enable`, `FLT_No_Retrain`).
 - `read_source_test_config` and `SourceTestConfig` (`TxFFE_Pre_Shoot_Only`,
   `TxFFE_De_Emphasis_Only`, `TxFFE_No_FFE`, `FLT_No_Timeout`, `DSC_FRL_Max`, `FRL_Max`).

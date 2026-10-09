@@ -38,8 +38,9 @@ Culvert covers:
 
 The following are out of scope:
 
-- **Async API** — an async variant of the SCDC client will live in a separate
-  `culvert-async` crate with its own feature flags. Culvert carries no async surface.
+- **Async API** — the async client lives in the separate `culvert-async` crate, which
+  shares culvert's register map through [`culvert::codec`](#the-codec-module). Culvert
+  carries no async surface.
 - **Link training state machine** — the sequencing of FRL training (rate selection loop,
   timeout handling, retry logic, fallback to TMDS) belongs in the link training crate.
   Culvert provides the register operations; the state machine decides when to call them.
@@ -214,6 +215,23 @@ request) that belong in the link training crate.
 
 ---
 
+
+## The `codec` Module
+
+`culvert::codec` holds the register map without any I/O: the address of every register
+culvert accesses (plus the CED checksum), `CED_REGISTERS` for the multi-register CED read,
+and one function per register that encodes a typed value into a byte or decodes bytes into
+a typed value — `encode_config_1`, `decode_ltp_requests`, `decode_ced`, and so on.
+Protocol checks live there too: `encode_config_1` rejects FFE levels above the rate's
+maximum and `decode_ltp_requests` rejects undefined requests, both as `ProtocolError`s.
+
+`Scdc<T>`'s methods only perform the reads and writes and hand the bytes to `codec`.
+`culvert-async`'s client does the same with `.await`, so the sync and async clients share
+one register map: an address or bit-layout fix in `codec` reaches both. The stack design
+document's "Sync and Async Companions" section records why the shared part lives in
+culvert.
+
+---
 
 ## Key Types
 
@@ -441,6 +459,8 @@ The full API is available in bare `no_std` environments.
   sources listed with the register map. No register is omitted because its consumer has
   not been built yet; registers not wrapped yet (the CED checksum, `Update_1`,
   `Test_Config_0`, manufacturer identification) are tracked on the roadmap.
+- **One register map.** Every address, bit position and protocol check is in `codec`,
+  shared by the sync and async clients; the clients add only the I/O.
 - **Stateless client, stateful caller.** `Scdc<T>` holds no protocol state. Sequencing,
   retry logic, and training state live in the caller. This keeps culvert fully testable
   in isolation — any sequence of register reads and writes can be exercised without

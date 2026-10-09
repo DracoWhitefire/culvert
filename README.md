@@ -134,7 +134,9 @@ implements `ScdcClient` is substitutable.
 
 ## Out of scope
 
-- **Async API** — an async variant will live in a separate `culvert-async` crate.
+- **Async API** — the async client is the separate `culvert-async` crate. Both clients
+  use the I/O-free `culvert::codec` module (register addresses and per-register encoding
+  and decoding), so the register map exists once.
 - **Link training state machine** — the sequencing of FRL training (rate selection,
   polling, fallback to TMDS) belongs in the link training crate. Culvert provides the
   register operations; the state machine decides when to call them.

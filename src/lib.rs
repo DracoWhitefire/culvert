@@ -8,6 +8,9 @@
 //! and exposes one typed method per register group. Sequencing of register operations —
 //! rate selection, timeout handling, retry logic — belongs in the link training crate
 //! above.
+//!
+//! The register map itself — addresses and per-register encoding and decoding — is the
+//! I/O-free [`codec`] module, which `Scdc` and `culvert-async`'s client share.
 #![no_std]
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
