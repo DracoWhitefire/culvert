@@ -82,9 +82,9 @@ see [Sources](#sources) for how each was established.
   `Status_Update` (bit 0), `CED_Update` (bit 1), `RR_Test` (bit 2),
   `Source_Test_Update` (bit 3), `FRL_Start` (bit 4), `FLT_Update` (bit 5),
   `RSED_Update` (bit 6). The source reads and then clears these to detect sink-side
-  state changes without polling every status register on every pass. `RR_Test` is the
-  one flag the source must not clear (Intel `xe` series), so `clear_update_flags` never
-  writes bit 2.
+  state changes without polling every status register on every pass. culvert treats
+  `RR_Test` as a flag the source must not clear: `clear_update_flags` refuses it (see
+  "`RR_Test` is not cleared" below — a provisional decision resting on one source).
 - `Update_1` (0x11) — no fields are defined by the sources below; culvert does not
   access it.
 
@@ -133,7 +133,8 @@ The register map was originally written from a summary of the spec and was wrong
 several places (FRL configuration in `Config_0`, shifted lock bits, `FRL_Start` and the
 LTP requests in the wrong registers, lane 3 CED at 0x56/0x57). The map above was rebuilt
 from open-source HDMI 2.1 implementations; every field was confirmed by at least two of
-them:
+them (one behavioural rule, not clearing `RR_Test`, rests on a single source and has its
+own section below):
 
 - the AMD/Xilinx HDMI 2.1 receiver and transmitter drivers (`embeddedsw`,
   `v_hdmirx1/src/xv_hdmirx1_frl.c`: SCDC field table with address, mask and shift for
@@ -151,6 +152,47 @@ them:
 `FFE_Levels` is the highest TxFFE level index the source supports: 0–3 for rates up to
 12 Gbps and 0–7 for faster rates, per the Intel `xe` series (`drm_scdc_config_frl`) and
 AMD's display driver (`hdmi_frl_get_max_ffe_level`). A sink treats a prohibited value as 0.
+
+### `RR_Test` is not cleared (provisional)
+
+**Rule.** `clear_update_flags` (and `codec::encode_clear_update_flags`) refuses to clear
+`Update_0` bit 2, `RR_Test` (Read Request Test): a request with `rr_test` set returns
+`ProtocolError::RrTestNotClearable` and writes nothing, not even the other flags in the
+request.
+
+**Evidence.** Unlike the field layout above, this rule rests on a single source, and
+another contradicts it:
+
+| Source | What it does with `RR_Test` |
+|---|---|
+| Intel `xe` HDMI 2.1 series (2026-08), `drm_scdc_clear_update_flags` | States the rule — "Read Request Test is the only update flag the source cannot clear" — and returns `-EINVAL` if asked to clear it. |
+| Amlogic HDMI 2.1 transmitter, `hdmitx21/hdmi_tx_scdc.c` | Clears it with the other HDMI 2.0 update flags it has read (`HDMI20_UPDATE_FLAGS & data`, which includes `READ_REQUEST_TEST`). |
+| AMD display driver, `link_hdmi_frl.c` | Only ever clears specific FRL flags; no evidence either way. |
+| AMD/Xilinx receiver, `xv_hdmirx1_frl.c` | Its SCDC field table has no `RR_Test`; no evidence either way. |
+| Linux mainline `drm_scdc.h` | Defines the bit (`SCDC_READ_REQUEST_TEST`); has no clear helper. |
+
+**Why culvert follows Intel.**
+- It is the only source that states a rule; Amlogic's code may clear the bit only because
+  it clears every flag it has seen, and a sink that owns the bit may ignore the write.
+- The risks are asymmetric. If the rule holds, a source that clears `RR_Test` can break a
+  sink's read-request test; if it does not, a source that leaves the flag alone loses
+  nothing, as far as any source shows.
+- Nothing in the stack needs to clear it: plumbob clears only `FLT_update`, `FRL_start`
+  and `Source_Test_Update`.
+- The refusal is an error, not a silent omission. culvert used to drop `rr_test` from the
+  write and return `Ok(())`, leaving the caller to believe the flag was cleared.
+
+**Alternatives considered.** Following Amlogic and writing whatever the caller asks
+(most literal register access, but lets a caller break an RR test if Intel is right); a
+separate flags type for clears without `rr_test` (compile-time, but a second type for one
+bit); keeping the silent omission (rejected: no silent failures).
+
+**Revisit when** any of these appears: the specification's text on `RR_Test`; a second
+implementation that states or contradicts the rule (for example, a clear helper in
+mainline `drm_scdc`); a sink that keeps `RR_Test` set and appears to expect the source to
+clear it; or a compliance report either way. Dropping the rule means removing the check in
+`codec::encode_clear_update_flags` (and, at a breaking release, the
+`RrTestNotClearable` variant), and updating this section.
 
 ---
 
@@ -361,6 +403,7 @@ pub enum ScdcError<E> {
 pub enum ProtocolError {
     UnknownFrlRate(u8),   // reserved; no current method reads an FRL rate back
     FfeLevelsOutOfRange { rate: FrlRate, levels: u8 },
+    RrTestNotClearable,   // a clear asked for RR_Test; nothing written (see above)
 }
 ```
 

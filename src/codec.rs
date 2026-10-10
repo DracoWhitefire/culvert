@@ -107,15 +107,19 @@ pub fn decode_update_flags(update_0: u8) -> UpdateFlags {
 
 /// Encodes the `Update_0` write that clears the flags set in `flags` (write 1 to clear).
 ///
-/// `rr_test` is never cleared: Read Request Test is the one update flag the source must
-/// not clear, so it is left out.
-pub fn encode_clear_update_flags(flags: UpdateFlags) -> u8 {
-    (flags.status_update as u8)
+/// Returns [`ProtocolError::RrTestNotClearable`] if `flags.rr_test` is set: culvert treats
+/// Read Request Test as a flag the source must not clear (see that variant, and "RR_Test is
+/// not cleared" in `doc/architecture.md`, for the sources and why).
+pub fn encode_clear_update_flags(flags: UpdateFlags) -> Result<u8, ProtocolError> {
+    if flags.rr_test {
+        return Err(ProtocolError::RrTestNotClearable);
+    }
+    Ok((flags.status_update as u8)
         | ((flags.ced_update as u8) << 1)
         | ((flags.source_test_update as u8) << 3)
         | ((flags.frl_start as u8) << 4)
         | ((flags.flt_update as u8) << 5)
-        | ((flags.rsed_update as u8) << 6)
+        | ((flags.rsed_update as u8) << 6))
 }
 
 /// Encodes `Config_0`: `RR_Enable` (bit 0) and `FLT_No_Retrain` (bit 1).

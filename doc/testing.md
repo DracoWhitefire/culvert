@@ -30,9 +30,11 @@ Each register group has tests covering:
   position in the output register(s). One assertion per field, not per struct.
 - **Decoding correctness** — every field of a read result is extracted from the correct
   bit position. Register values are crafted to isolate individual bits where necessary.
-- **Protocol errors** — invalid enum values returned by the sink produce the correct
-  `ProtocolError` variant with the raw register value preserved (e.g. all eleven
-  undefined `LtpReq` nibbles 5–15 are each tested individually).
+- **Protocol errors** — what culvert refuses produces the correct `ProtocolError`
+  variant before anything is written: FFE levels above the rate's maximum, and a clear of
+  `Update_0` that asks for `RR_Test` (checked with a sentinel in the register). Undefined
+  values the sink reports are not errors: each undefined `LtpReq` nibble (0x9–0xD) decodes
+  to `LtpReq::Reserved` with its raw value.
 - **Transport error propagation** — every read and write call site has a
   `TestTransport::failing_after(n)` test that triggers failure at that exact operation
   and asserts the error bubbles through as `ScdcError::Transport`.
