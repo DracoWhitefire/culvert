@@ -161,13 +161,19 @@ pub enum LtpReq {
     /// 0xF: the sink requests a lower FRL rate.
     RateChange,
     /// 0x9–0xD: a value the specification leaves undefined.
+    ///
+    /// Build requests from a raw value with [`from_value`](Self::from_value), which only
+    /// produces `Reserved` for 0x9–0xD. A `Reserved` built by hand with any other value
+    /// is not a request a sink can send: `Reserved(0x5)` has the value of `Lfsr0` but
+    /// does not compare equal to it.
     Reserved(u8),
 }
 
 impl LtpReq {
-    /// Decodes a 4-bit LTP request field (the low nibble of `nibble`).
-    pub(crate) const fn from_nibble(nibble: u8) -> Self {
-        match nibble & 0x0F {
+    /// The request with the 4-bit `value`, or `None` above 0xF. Every value has exactly
+    /// one request: 0x9–0xD are [`Reserved`](Self::Reserved).
+    pub const fn from_value(value: u8) -> Option<Self> {
+        Some(match value {
             0x0 => Self::None,
             0x1 => Self::AllOnes,
             0x2 => Self::AllZeros,
@@ -177,13 +183,20 @@ impl LtpReq {
             0x6 => Self::Lfsr1,
             0x7 => Self::Lfsr2,
             0x8 => Self::Lfsr3,
+            0x9..=0xD => Self::Reserved(value),
             0xE => Self::FfeChange,
             0xF => Self::RateChange,
-            undefined => Self::Reserved(undefined),
-        }
+            _ => return None,
+        })
     }
 
-    /// The request's 4-bit value.
+    /// Decodes a 4-bit LTP request field (the low nibble of `nibble`).
+    pub(crate) const fn from_nibble(nibble: u8) -> Self {
+        // Every 4-bit value has a request.
+        Self::from_value(nibble & 0x0F).unwrap()
+    }
+
+    /// The request's 4-bit value (for a `Reserved` built by hand, the value it holds).
     pub const fn value(self) -> u8 {
         match self {
             Self::None => 0x0,
@@ -450,6 +463,21 @@ mod tests {
             );
             assert_eq!(all(f), args, "parameter {i}");
         }
+    }
+
+    #[test]
+    fn ltp_req_from_value_gives_one_request_per_value() {
+        for value in 0u8..=0xF {
+            let request = LtpReq::from_value(value).unwrap();
+            assert_eq!(request.value(), value, "value {value:#x}");
+            assert_eq!(
+                matches!(request, LtpReq::Reserved(_)),
+                (0x9..=0xD).contains(&value),
+                "value {value:#x}"
+            );
+        }
+        assert_eq!(LtpReq::from_value(0x10), None);
+        assert_eq!(LtpReq::from_value(0xFF), None);
     }
 
     #[test]

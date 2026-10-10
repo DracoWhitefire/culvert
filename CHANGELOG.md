@@ -77,6 +77,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`LtpReq::from_value`** — the request for a raw 4-bit value (`None` above 0xF); every
+  value has exactly one request, `Reserved` only for 0x9–0xD. The decoder uses it.
 - `ScdcTransport` re-exported at the crate root, from `hdmi-hal`: the bound on `Scdc<T>`.
 - **`culvert::codec`** — the register map without I/O: every register address culvert
   accesses (and the CED checksum), `CED_REGISTERS`, and one encode or decode function per
