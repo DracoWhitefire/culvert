@@ -38,8 +38,9 @@ Culvert covers:
 
 The following are out of scope:
 
-- **Async API** — an async variant of the SCDC client will live in a separate
-  `culvert-async` crate with its own feature flags. Culvert carries no async surface.
+- **Async API** — the async client lives in the separate `culvert-async` crate, which
+  shares culvert's register map through [`culvert::codec`](#the-codec-module). Culvert
+  carries no async surface.
 - **Link training state machine** — the sequencing of FRL training (rate selection loop,
   timeout handling, retry logic, fallback to TMDS) belongs in the link training crate.
   Culvert provides the register operations; the state machine decides when to call them.
@@ -81,9 +82,10 @@ see [Sources](#sources) for how each was established.
   `Status_Update` (bit 0), `CED_Update` (bit 1), `RR_Test` (bit 2),
   `Source_Test_Update` (bit 3), `FRL_Start` (bit 4), `FLT_Update` (bit 5),
   `RSED_Update` (bit 6). The source reads and then clears these to detect sink-side
-  state changes without polling every status register on every pass. `RR_Test` is the
-  one flag the source must not clear (Intel `xe` series), so `clear_update_flags` never
-  writes bit 2.
+  state changes without polling every status register on every pass. culvert treats
+  `RR_Test` as a flag the source must not clear: `clear_update_flags` takes
+  `ClearableUpdateFlags`, which has no field for it (see "`RR_Test` is not cleared"
+  below — a provisional decision resting on one source).
 - `Update_1` (0x11) — no fields are defined by the sources below; culvert does not
   access it.
 
@@ -132,7 +134,8 @@ The register map was originally written from a summary of the spec and was wrong
 several places (FRL configuration in `Config_0`, shifted lock bits, `FRL_Start` and the
 LTP requests in the wrong registers, lane 3 CED at 0x56/0x57). The map above was rebuilt
 from open-source HDMI 2.1 implementations; every field was confirmed by at least two of
-them:
+them (one behavioural rule, not clearing `RR_Test`, rests on a single source and has its
+own section below):
 
 - the AMD/Xilinx HDMI 2.1 receiver and transmitter drivers (`embeddedsw`,
   `v_hdmirx1/src/xv_hdmirx1_frl.c`: SCDC field table with address, mask and shift for
@@ -150,6 +153,61 @@ them:
 `FFE_Levels` is the highest TxFFE level index the source supports: 0–3 for rates up to
 12 Gbps and 0–7 for faster rates, per the Intel `xe` series (`drm_scdc_config_frl`) and
 AMD's display driver (`hdmi_frl_get_max_ffe_level`). A sink treats a prohibited value as 0.
+
+### `RR_Test` is not cleared (provisional)
+
+**Rule.** culvert never clears `Update_0` bit 2, `RR_Test` (Read Request Test).
+`clear_update_flags` (and `codec::encode_clear_update_flags`) takes `ClearableUpdateFlags`,
+which has every update flag but `RR_Test`, so a clear that includes it cannot be written.
+`read_update_flags` still reports it in `UpdateFlags`, and `UpdateFlags::clearable()`
+turns the flags just read into a clear of everything else.
+
+**Evidence.** Unlike the field layout above, this rule rests on a single source, and
+another contradicts it:
+
+| Source | What it does with `RR_Test` |
+|---|---|
+| Intel `xe` HDMI 2.1 series (2026-08), `drm_scdc_clear_update_flags` | States the rule — "Read Request Test is the only update flag the source cannot clear" — and returns `-EINVAL` if asked to clear it. |
+| Amlogic HDMI 2.1 transmitter, `hdmitx21/hdmi_tx_scdc.c` | Clears it with the other HDMI 2.0 update flags it has read (`HDMI20_UPDATE_FLAGS & data`, which includes `READ_REQUEST_TEST`). |
+| AMD display driver, `link_hdmi_frl.c` | Only ever clears specific FRL flags; no evidence either way. |
+| AMD/Xilinx receiver, `xv_hdmirx1_frl.c` | Its SCDC field table has no `RR_Test`; no evidence either way. |
+| Linux mainline `drm_scdc.h` | Defines the bit (`SCDC_READ_REQUEST_TEST`); has no clear helper. |
+
+**Why culvert follows Intel.**
+- It is the only source that states a rule; Amlogic's code may clear the bit only because
+  it clears every flag it has seen, and a sink that owns the bit may ignore the write.
+- The risks are asymmetric. If the rule holds, a source that clears `RR_Test` can break a
+  sink's read-request test; if it does not, a source that leaves the flag alone loses
+  nothing, as far as any source shows.
+- Nothing in the stack needs to clear it: plumbob clears only `FLT_update`, `FRL_start`
+  and `Source_Test_Update`.
+- Nothing is dropped silently. culvert used to leave `rr_test` out of the write and
+  return `Ok(())`, leaving the caller to believe the flag was cleared; with no field for
+  it, the clear says exactly what is written.
+
+**Why a separate type (October 2026).** A first version kept one `UpdateFlags` for reads
+and clears and refused a clear with `rr_test` set (`ProtocolError::RrTestNotClearable`,
+writing nothing). The second review of the FRL rework showed the cost: a caller that
+clears what it has just read — the natural loop for an integration layer, a kernel driver
+or firmware watching `Status_Update`, `CED_Update` and `FLT_update` after training — works
+on every ordinary sink and fails on every clear once a sink sets `RR_Test`, which is to
+say on compliance equipment, leaving `FLT_update` set. The bug would surface late, in
+front of a tester. With a separate type it cannot be written: the compiler catches it,
+`clearable()` names the one bit left out at the call site, and the refusal error is gone.
+
+**Alternatives considered.** Following Amlogic and writing whatever the caller asks
+(most literal register access, but lets a caller break an RR test if Intel is right); one
+type for reads and clears with a run-time refusal (the first version, above); a helper
+that strips `rr_test` from `UpdateFlags` (helps only callers who know to use it); keeping
+the silent omission (rejected: no silent failures).
+
+**Revisit when** any of these appears: the specification's text on `RR_Test`; a second
+implementation that states or contradicts the rule (for example, a clear helper in
+mainline `drm_scdc`); a sink that keeps `RR_Test` set and appears to expect the source to
+clear it; or a compliance report either way. Dropping the rule means adding an `rr_test`
+field to `ClearableUpdateFlags` (non-breaking for code that reads its fields, as the type
+is `#[non_exhaustive]`; `new` gains a parameter, which is breaking), encoding it in
+`codec::encode_clear_update_flags`, and updating this section.
 
 ---
 
@@ -184,7 +242,7 @@ impl<T: ScdcTransport> Scdc<T> {
     pub fn read_status_flags(&mut self) -> Result<StatusFlags, ScdcError<T::Error>>;
     pub fn read_ltp_requests(&mut self) -> Result<LtpRequests, ScdcError<T::Error>>;
     pub fn read_update_flags(&mut self) -> Result<UpdateFlags, ScdcError<T::Error>>;
-    pub fn clear_update_flags(&mut self, flags: UpdateFlags) -> Result<(), ScdcError<T::Error>>;
+    pub fn clear_update_flags(&mut self, flags: ClearableUpdateFlags) -> Result<(), ScdcError<T::Error>>;
 
     // CED
     pub fn read_ced(&mut self) -> Result<CedCounters, ScdcError<T::Error>>;
@@ -207,13 +265,34 @@ multiple registers in a single logical operation:
 
 In both cases the method performs its reads back to back with no intervening writes or
 protocol state changes. Each register is a separate single-byte transaction, so a value
-the sink updates between two reads can be torn; reading the block in one transaction (and
-verifying the CED checksum) needs a multi-byte read in `hdmi-hal`'s `ScdcTransport`. This
+the sink updates between two reads can be torn; reading the block in one transaction
+through `ScdcTransport::read_block`, and verifying the CED checksum, is planned (see the
+roadmap). This
 is distinct from the multi-step sequences (write rate, poll for ready, handle pattern
 request) that belong in the link training crate.
 
 ---
 
+
+## The `codec` Module
+
+`culvert::codec` holds the register map without any I/O: the address of every register
+culvert accesses (plus the CED checksum), `CED_REGISTERS` for the multi-register CED read,
+and one function per register that encodes a typed value into a byte or decodes bytes into
+a typed value — `encode_config_1`, `decode_ltp_requests`, `decode_ced`, and so on.
+Protocol checks live there too: `encode_config_1` rejects FFE levels above the rate's
+maximum as a `ProtocolError`. Decoding judges nothing it cannot judge: `decode_ltp_requests`
+decodes every value, the undefined ones (0x9–0xD) as `LtpReq::Reserved(value)`, because
+whether one matters depends on the lanes in use, which only the link training layer
+knows.
+
+`Scdc<T>`'s methods only perform the reads and writes and hand the bytes to `codec`.
+`culvert-async`'s client does the same with `.await`, so the sync and async clients share
+one register map: an address or bit-layout fix in `codec` reaches both. The stack design
+document's "Sync and Async Companions" section records why the shared part lives in
+culvert.
+
+---
 
 ## Key Types
 
@@ -256,20 +335,20 @@ pub struct SourceTestConfig {
 }
 
 /// Link Training Pattern requested by the sink for one lane (a 4-bit field in
-/// `Status_Flags_1`/`Status_Flags_2`). An undefined value surfaces as
-/// `ProtocolError::UnknownLtpReq`.
+/// `Status_Flags_1`/`Status_Flags_2`). `LtpReq::value()` returns the 4-bit value.
 pub enum LtpReq {
-    None              = 0x0,   // lane trained, no pattern requested
-    AllOnes           = 0x1,
-    AllZeros          = 0x2,
-    NyquistClock      = 0x3,
-    RxDdeCompliance   = 0x4,
-    Lfsr0             = 0x5,
-    Lfsr1             = 0x6,
-    Lfsr2             = 0x7,
-    Lfsr3             = 0x8,
-    FfeChange         = 0xE,   // sink requests an FFE level change
-    RateChange        = 0xF,   // sink requests a lower FRL rate
+    None,              // 0x0: lane trained, no pattern requested
+    AllOnes,           // 0x1
+    AllZeros,          // 0x2
+    NyquistClock,      // 0x3
+    RxDdeCompliance,   // 0x4
+    Lfsr0,             // 0x5
+    Lfsr1,             // 0x6
+    Lfsr2,             // 0x7
+    Lfsr3,             // 0x8
+    FfeChange,         // 0xE: sink requests an FFE level change
+    RateChange,        // 0xF: sink requests a lower FRL rate
+    Reserved(u8),      // 0x9–0xD: undefined by the specification
 }
 
 /// Per-lane pattern requests from `Status_Flags_1` (0x41) and `Status_Flags_2` (0x42).
@@ -299,6 +378,17 @@ pub struct UpdateFlags {
     pub source_test_update: bool,   // bit 3
     pub frl_start: bool,            // bit 4: training passed, source may start FRL
     pub flt_update: bool,           // bit 5: LTP requests changed
+    pub rsed_update: bool,          // bit 6
+}
+
+/// The `Update_0` flags a source may clear: every flag but `RR_Test`.
+/// `UpdateFlags::clearable()` gives the flags just read in this form.
+pub struct ClearableUpdateFlags {
+    pub status_update: bool,        // bit 0
+    pub ced_update: bool,           // bit 1
+    pub source_test_update: bool,   // bit 3
+    pub frl_start: bool,            // bit 4
+    pub flt_update: bool,           // bit 5
     pub rsed_update: bool,          // bit 6
 }
 
@@ -332,24 +422,26 @@ Culvert surfaces two distinct failure categories:
 pub enum ScdcError<E> {
     /// The underlying I²C/DDC transport returned an error.
     Transport(E),
-    /// The register data violates the SCDC protocol (e.g. an undefined LTP request value).
+    /// The operation would violate the SCDC protocol (e.g. FFE levels the rate
+    /// prohibits); nothing was written.
     Protocol(ProtocolError),
 }
 
 #[non_exhaustive]
 pub enum ProtocolError {
     UnknownFrlRate(u8),   // reserved; no current method reads an FRL rate back
-    UnknownLtpReq(u8),
     FfeLevelsOutOfRange { rate: FrlRate, levels: u8 },
 }
 ```
 
 This mirrors the pattern established in piaf: transport failures and protocol violations
 are distinct. A caller that only cares about transport health can match on `Transport(_)`;
-one that wants to diagnose unexpected sink behaviour inspects `Protocol(_)`.
+`Protocol(_)` means culvert refused a request that would break the protocol. Every value a
+sink can report decodes — an undefined link training request is `LtpReq::Reserved` — so
+unexpected sink behaviour reaches the caller as data, not as an error.
 
 Both enums are `#[non_exhaustive]` at the type level, consistent with the rest of the
-stack. Variants are plain — callers can match `UnknownLtpReq(value)` without `..`.
+stack. Tuple variants are plain — callers can match `UnknownFrlRate(value)` without `..`.
 
 `ScdcError` is `#[non_exhaustive]` to allow future variants without a breaking change.
 
@@ -383,11 +475,39 @@ This follows the same convention as `serde` feature flags in the ecosystem: the 
 crate reaches toward the consuming crate's trait, rather than the consumer depending on
 the producer.
 
-The feature is **temporarily removed**. plumbob 0.1's `ScdcClient` models a single link
-training pattern request and waits for `FRL_Start` before the pattern loop, which does not
-match the corrected register map (per-lane requests, `FLT_Update`-driven training,
-`FRL_Start` only after training passes). It returns once plumbob's training state machine
-follows LTS:2 → LTS:3 → LTS:P with per-lane requests.
+```toml
+# Cargo.toml of a crate using both
+culvert  = { version = "0.1", features = ["plumbob"] }
+plumbob  = "0.1"
+```
+
+Each `ScdcClient` method calls one culvert method:
+
+| `ScdcClient` method | culvert method | Register |
+|---|---|---|
+| `read_flt_ready` | `read_status_flags().flt_ready` | `Status_Flags_0` (0x40) bit 6 |
+| `read_update_flags` | `read_update_flags` | `Update_0` (0x10) bits 3–5 |
+| `clear_update_flags` | `clear_update_flags` | `Update_0` (0x10), write 1 to clear |
+| `read_ltp_requests` | `read_ltp_requests` | `Status_Flags_1/2` (0x41/0x42) |
+| `read_source_test_config` | `read_source_test_config` | `Source_Test_Configuration` (0x35) |
+| `write_config_0_defaults` | `write_config_0(Config0::default())` | `Config_0` (0x30) |
+| `write_frl_config` | `write_frl_config` | `Config_1` (0x31) |
+| `read_ced` | `read_ced` | `ERR_DET` (0x50–0x55, 0x57–0x58) |
+
+`From` impls in the feature-gated module convert culvert's types to plumbob's owned types
+(`LtpReq`, `LtpRequests`, `UpdateFlags`, `SourceTestConfig`, `CedCount`, `CedCounters`)
+and plumbob's `UpdateFlags` and `FrlConfig` back for the writes. culvert's own types are
+unchanged, so culvert means the same thing with or without the feature. Only the fields
+training uses cross the boundary: clearing flags through `ScdcClient` writes only
+`Source_Test_Update`, `FRL_start` and `FLT_update`, and culvert's richer `StatusFlags`,
+`UpdateFlags` and `SourceTestConfig` stay available through `Scdc<T>` directly. plumbob
+plans to mirror culvert's types field for field (its `doc/roadmap.md` has the plan);
+every field will then cross the boundary.
+`write_frl_config` keeps culvert's own FFE-levels check, which plumbob's per-rate limit
+already satisfies.
+
+`Scdc` holds no state and does not wait between calls. plumbob's poll limits assume one
+poll every 2 ms by default; the transport (or a wrapper around it) enforces that interval.
 
 ---
 
@@ -397,7 +517,8 @@ Culvert requires no allocator. All output types are stack-allocated structs. The
 `ScdcError<E>` type requires no heap. `Scdc<T>` holds only the transport, which is
 caller-owned.
 
-The full API is available in bare `no_std` environments.
+The full API is available in bare `no_std` environments. CI builds the crate, with and
+without the `plumbob` feature, for `thumbv7em-none-eabi`, a target without `std`.
 
 ---
 
@@ -409,13 +530,14 @@ The full API is available in bare `no_std` environments.
 - **Interface owned by the consumer.** The `ScdcClient` trait that culvert implements is
   defined in `plumbob`, not here. culvert implements the trait; it does not define it.
   This means the link training layer can swap culvert for any other `ScdcClient`
-  implementation without touching culvert. The `plumbob` cargo feature (temporarily
-  removed, see above) gates the impl so culvert remains independently usable without the
-  link training layer as a dependency.
+  implementation without touching culvert. The `plumbob` cargo feature gates the impl
+  so culvert remains independently usable without the link training layer as a dependency.
 - **Spec accuracy and completeness.** Every field culvert decodes is checked against the
   sources listed with the register map. No register is omitted because its consumer has
   not been built yet; registers not wrapped yet (the CED checksum, `Update_1`,
   `Test_Config_0`, manufacturer identification) are tracked on the roadmap.
+- **One register map.** Every address, bit position and protocol check is in `codec`,
+  shared by the sync and async clients; the clients add only the I/O.
 - **Stateless client, stateful caller.** `Scdc<T>` holds no protocol state. Sequencing,
   retry logic, and training state live in the caller. This keeps culvert fully testable
   in isolation — any sequence of register reads and writes can be exercised without
@@ -424,7 +546,7 @@ The full API is available in bare `no_std` environments.
   here: pre-load a register array, run culvert operations against it, assert on results.
   No hardware required.
 - **Transport errors and protocol errors are distinct.** A caller should be able to tell
-  whether a failure came from the I²C bus or from unexpected register content.
+  whether a failure came from the I²C bus or from a request culvert refused.
 - **Stack-ordered delivery.** The 0.1.0 scope is the register coverage needed by the
   link training crate. Everything else the spec defines is on the roadmap.
 - **No unsafe code.** `#![forbid(unsafe_code)]`.

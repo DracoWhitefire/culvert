@@ -27,21 +27,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     seven flags in bit order.
   - Link training pattern requests are read per lane with `read_ltp_requests`.
     `LtpReq` follows the spec values: LFSR 0–3 are 0x5–0x8, and `AllOnes`, `AllZeros`,
-    `NyquistClock`, `RxDdeCompliance`, `FfeChange` and `RateChange` are added.
+    `NyquistClock`, `RxDdeCompliance`, `FfeChange` and `RateChange` are added. Every
+    value decodes: the undefined ones (0x9–0xD) are `LtpReq::Reserved(value)`, so a
+    stray value on one lane (such as the unused lane 3 at a 3-lane rate) no longer fails
+    the whole read; whether it matters is for the link training layer to decide.
+    `ProtocolError::UnknownLtpReq` is removed, and `codec::decode_ltp_requests` returns
+    `LtpRequests` rather than a `Result`. `LtpReq::value()` returns the 4-bit value.
   - `UpdateFlags` decodes all `Update_0` flags (`rr_test`, `source_test_update`,
     `frl_start`, `flt_update`, `rsed_update`); `frl_update` and `dsc_update` are
     removed, `Update_1` is no longer accessed, and `UpdateFlags::new` takes the seven
-    flags in bit order. `clear_update_flags` never clears `rr_test`, which the source
-    must not clear.
-- **`plumbob` feature removed for now.** plumbob 0.1's `ScdcClient` models a single link
-  training pattern request and waits for `FRL_Start` before training, which cannot work
-  with the corrected register map. The implementation returns once plumbob trains per
-  lane (LTS:2 → LTS:3 → LTS:P).
+    flags in bit order. `clear_update_flags` takes the new `ClearableUpdateFlags` —
+    every flag but `rr_test` — instead of `UpdateFlags`, and `codec::encode_clear_update_flags`
+    is infallible: culvert treats Read Request Test as a flag the source must not clear,
+    and used to leave it out of the write silently. `UpdateFlags::clearable()` turns
+    flags just read into a clear of everything else, so a read-then-clear works on a sink
+    that keeps `RR_Test` set. The rule comes from the Intel `xe` series alone, and
+    Amlogic's driver clears the bit, so it is provisional; `doc/architecture.md` records
+    the evidence, the reasoning and what would change it.
+- **The `plumbob` feature implements plumbob's per-lane `ScdcClient`.** plumbob 0.1's
+  interface (`read_training_status`, a single link training pattern request) could not
+  work with the corrected register map. `Scdc<T>` now implements the one-method-per-register
+  operation trait of plumbob's link training states (LTS:2 → LTS:3 → LTS:P):
+  `read_flt_ready` (`Status_Flags_0` bit 6), `read_update_flags` and `clear_update_flags`
+  (the `Update_0` training flags), `read_ltp_requests` (per lane),
+  `read_source_test_config` (`FLT_no_timeout`), `write_config_0_defaults`,
+  `write_frl_config` (`Config_1`) and `read_ced`. culvert's types convert to plumbob's
+  through `From` impls in the feature-gated module; culvert's own types are unchanged.
+  `Scdc` does not wait between polls: the poll interval plumbob's limits assume (2 ms by
+  default) belongs in the transport.
 
 ### Changed
 
-- **Minimum `hdmi-hal` version raised to 0.4.0**: culvert now requires `hdmi-hal >= 0.4.0`,
-  which carries the `ScdcTransport::read` receiver change above.
+- **Minimum `hdmi-hal` version raised to 0.5**: `Scdc<T>` is bound by hdmi-hal 0.5's
+  `ScdcTransport`, the version plumbob's training uses. It has the `read(&self)` receiver
+  from hdmi-hal 0.4.0 (see above) and adds the `read_block` default method, so a
+  transport written for hdmi-hal 0.4 only needs its dependency raised.
+- **`display-types` updated to 0.4** — aligns with display-types 0.4 across the stack.
+  `FrlRate` (the re-exported `HdmiForumFrl`) is now display-types 0.4's type, the one
+  `hdmi-hal` and `plumbob` use.
 
 ### Fixed
 
@@ -56,6 +79,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`LtpReq::from_value`** — the request for a raw 4-bit value (`None` above 0xF); every
+  value has exactly one request, `Reserved` only for 0x9–0xD. The decoder uses it.
+- `ScdcTransport` re-exported at the crate root, from `hdmi-hal`: the bound on `Scdc<T>`.
+- **`culvert::codec`** — the register map without I/O: every register address culvert
+  accesses (and the CED checksum), `CED_REGISTERS`, and one encode or decode function per
+  register (`encode_tmds_config`, `decode_scrambler_status`, `decode_update_flags`,
+  `encode_clear_update_flags`, `encode_config_0`, `encode_config_1`,
+  `decode_source_test_config`, `decode_status_flags`, `decode_ltp_requests`, `decode_ced`,
+  `decode_rs_correction`). `Scdc<T>` now only performs the reads and writes and uses these;
+  `culvert-async` uses the same functions, so the sync and async clients share one
+  register map.
 - `write_config_0` and `Config0` (`RR_Enable`, `FLT_No_Retrain`).
 - `read_source_test_config` and `SourceTestConfig` (`TxFFE_Pre_Shoot_Only`,
   `TxFFE_De_Emphasis_Only`, `TxFFE_No_FFE`, `FLT_No_Timeout`, `DSC_FRL_Max`, `FRL_Max`).
@@ -72,6 +106,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- **CI builds for a `no_std` target** — new `Build (no_std)` steps build the crate for
+  `thumbv7em-none-eabi`, with and without the `plumbob` feature. Nothing checked a
+  target without `std` before, so a dependency that enables `std` (as hdmi-hal did
+  through `display-types`) went unnoticed.
+  The publish workflow runs the same build steps.
 - **Automated publish can be triggered by `release-tag`** — `publish.yml` gains a
   `workflow_dispatch` trigger. Tags pushed with `GITHUB_TOKEN` do not start push-triggered
   workflows, so `release-tag`'s "Trigger publish workflow" step

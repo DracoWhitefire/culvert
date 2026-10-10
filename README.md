@@ -12,8 +12,8 @@ Typed access to the HDMI 2.1 SCDC register map.
 `culvert` sits on top of [`hdmi_hal::scdc::ScdcTransport`] and gives raw SCDC register
 bytes meaning: named structs, typed enums, and one method per register group for
 scrambling control, FRL training primitives, version negotiation, update flags, and
-Character Error Detection. It is the SCDC layer for [`plumbob`]'s link training state
-machine, and is equally usable without it.
+Character Error Detection. It is the SCDC layer that [`plumbob`]'s link training state
+machine drives, and is equally usable without it.
 
 Sequencing of register operations — rate selection, timeout handling, retry logic — is
 out of scope. Culvert provides the typed primitives; the caller decides when to call them.
@@ -28,7 +28,7 @@ culvert = "0.1"
 Wrap your transport in `Scdc` and call typed methods:
 
 ```rust
-use culvert::{Scdc, TmdsConfig, FrlConfig, FrlRate, FfeLevels, UpdateFlags};
+use culvert::{Scdc, TmdsConfig, FrlConfig, FrlRate, FfeLevels, ClearableUpdateFlags};
 
 let mut scdc = Scdc::new(transport);
 
@@ -55,7 +55,7 @@ if flags.flt_ready {
 let updates = scdc.read_update_flags()?;
 if updates.flt_update {
     let requests = scdc.read_ltp_requests()?;
-    scdc.clear_update_flags(UpdateFlags::new(false, false, false, false, false, true, false))?;
+    scdc.clear_update_flags(ClearableUpdateFlags::new(false, false, false, false, true, false))?;
     if requests.all_trained() {
         // training passed; wait for FRL_Start in the update flags
     }
@@ -68,10 +68,19 @@ if let Some(count) = ced.lane0 {
 }
 ```
 
-The `plumbob` feature (an implementation of `plumbob::ScdcClient` for `Scdc<T>`) is
-temporarily removed: plumbob 0.1's training sequence and single-lane pattern requests do
-not match the corrected register map. It returns once plumbob handles per-lane link
-training.
+To use culvert as the SCDC backend for `plumbob`'s link training state machine, enable
+the `plumbob` feature:
+
+```toml
+[dependencies]
+culvert  = { version = "0.1", features = ["plumbob"] }
+plumbob  = "0.1"
+```
+
+`Scdc<T>` then implements `plumbob::ScdcClient`, one culvert method per training
+operation. `Scdc` does not wait between calls: plumbob polls `FLT_ready` and `Update_0`
+in loops whose limits assume one poll every 2 ms, so enforce that interval in the
+transport (or a wrapper around it).
 
 ## Register coverage
 
@@ -92,6 +101,12 @@ The register map and its sources are described in
 covered (the CED checksum, manufacturer identification) are
 documented in [`doc/roadmap.md`](doc/roadmap.md).
 
+## Features
+
+| Feature   | Default | Description |
+|-----------|---------|-------------|
+| `plumbob` | no      | Implements `plumbob::ScdcClient` for `Scdc<T>` |
+
 ## `no_std`
 
 `culvert` is `#![no_std]` throughout. All output types are stack-allocated; no allocator
@@ -105,21 +120,23 @@ flowchart LR
     hal["hdmi-hal"]
     culvert["culvert"]
     plumbob["plumbob"]
-    integration["integration layer"]
+    integration["integration layer (planned)"]
 
     dt --> culvert
     hal --> culvert
-    culvert -.->|"ScdcClient (returning with plumbob's rework)"| plumbob
-    plumbob -->|"implements LinkTrainer"| integration
+    culvert -->|"implements ScdcClient"| plumbob
+    plumbob -.->|"will implement LinkTrainer"| integration
 ```
 
-`culvert` does not depend on `plumbob`. The relationship runs the other way: the planned
-`plumbob` feature makes `Scdc<T>` implement `plumbob::ScdcClient`, so any crate that
+`culvert` does not depend on `plumbob`. The relationship runs the other way: enabling the
+`plumbob` feature makes `Scdc<T>` implement `plumbob::ScdcClient`, and any crate that
 implements `ScdcClient` is substitutable.
 
 ## Out of scope
 
-- **Async API** — an async variant will live in a separate `culvert-async` crate.
+- **Async API** — the async client is the separate `culvert-async` crate. Both clients
+  use the I/O-free `culvert::codec` module (register addresses and per-register encoding
+  and decoding), so the register map exists once.
 - **Link training state machine** — the sequencing of FRL training (rate selection,
   polling, fallback to TMDS) belongs in the link training crate. Culvert provides the
   register operations; the state machine decides when to call them.

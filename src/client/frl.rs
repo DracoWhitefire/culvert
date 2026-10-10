@@ -1,10 +1,8 @@
 use hdmi_hal::scdc::ScdcTransport;
 
-use crate::error::{ProtocolError, ScdcError};
-use crate::register::address;
-use crate::register::{
-    Config0, FfeLevels, FrlConfig, LtpReq, LtpRequests, SourceTestConfig, StatusFlags,
-};
+use crate::codec;
+use crate::error::ScdcError;
+use crate::register::{Config0, FrlConfig, LtpRequests, SourceTestConfig, StatusFlags};
 
 use super::Scdc;
 
@@ -14,25 +12,19 @@ impl<T: ScdcTransport> Scdc<T> {
     /// Encodes `FRL_Rate` into bits\[3:0\] and `FFE_Levels` into bits\[7:4\].
     ///
     /// Returns [`crate::ProtocolError::FfeLevelsOutOfRange`] without writing anything if
-    /// the FFE levels exceed [`FfeLevels::max_for`] the requested rate.
+    /// the FFE levels exceed [`FfeLevels::max_for`](crate::FfeLevels::max_for) the
+    /// requested rate.
     pub fn write_frl_config(&mut self, config: FrlConfig) -> Result<(), ScdcError<T::Error>> {
-        if config.ffe_levels.value() > FfeLevels::max_for(config.frl_rate).value() {
-            return Err(ScdcError::Protocol(ProtocolError::FfeLevelsOutOfRange {
-                rate: config.frl_rate,
-                levels: config.ffe_levels.value(),
-            }));
-        }
-        let byte = (config.frl_rate as u8) | (config.ffe_levels.value() << 4);
+        let byte = codec::encode_config_1(config).map_err(ScdcError::Protocol)?;
         self.transport
-            .write(address::CONFIG_1, byte)
+            .write(codec::CONFIG_1, byte)
             .map_err(ScdcError::Transport)
     }
 
     /// Writes `Config_0` (0x30): `RR_Enable` (bit 0) and `FLT_No_Retrain` (bit 1).
     pub fn write_config_0(&mut self, config: Config0) -> Result<(), ScdcError<T::Error>> {
-        let byte = (config.rr_enable as u8) | ((config.flt_no_retrain as u8) << 1);
         self.transport
-            .write(address::CONFIG_0, byte)
+            .write(codec::CONFIG_0, codec::encode_config_0(config))
             .map_err(ScdcError::Transport)
     }
 
@@ -41,16 +33,9 @@ impl<T: ScdcTransport> Scdc<T> {
     pub fn read_source_test_config(&mut self) -> Result<SourceTestConfig, ScdcError<T::Error>> {
         let byte = self
             .transport
-            .read(address::SOURCE_TEST_CONFIG)
+            .read(codec::SOURCE_TEST_CONFIG)
             .map_err(ScdcError::Transport)?;
-        Ok(SourceTestConfig {
-            txffe_pre_shoot_only: byte & 0x02 != 0,
-            txffe_de_emphasis_only: byte & 0x04 != 0,
-            txffe_no_ffe: byte & 0x08 != 0,
-            flt_no_timeout: byte & 0x20 != 0,
-            dsc_frl_max: byte & 0x40 != 0,
-            frl_max: byte & 0x80 != 0,
-        })
+        Ok(codec::decode_source_test_config(byte))
     }
 
     /// Reads `Status_Flags_0` (0x40): clock detection, lane lock, `FLT_Ready` and DSC
@@ -58,43 +43,26 @@ impl<T: ScdcTransport> Scdc<T> {
     pub fn read_status_flags(&mut self) -> Result<StatusFlags, ScdcError<T::Error>> {
         let flags0 = self
             .transport
-            .read(address::STATUS_FLAGS_0)
+            .read(codec::STATUS_FLAGS_0)
             .map_err(ScdcError::Transport)?;
-        Ok(StatusFlags {
-            clock_detected: flags0 & 0x01 != 0,
-            ch0_locked: flags0 & 0x02 != 0,
-            ch1_locked: flags0 & 0x04 != 0,
-            ch2_locked: flags0 & 0x08 != 0,
-            ln3_locked: flags0 & 0x10 != 0,
-            flt_ready: flags0 & 0x40 != 0,
-            dsc_decode_fail: flags0 & 0x80 != 0,
-        })
+        Ok(codec::decode_status_flags(flags0))
     }
 
     /// Reads the per-lane link training pattern requests from `Status_Flags_1` (0x41,
     /// lanes 0–1) and `Status_Flags_2` (0x42, lanes 2–3).
     ///
-    /// Returns [`crate::ProtocolError::UnknownLtpReq`] if any lane reports a value not
-    /// defined by the HDMI 2.1 specification.
+    /// A value the HDMI 2.1 specification leaves undefined (0x9–0xD) is
+    /// [`LtpReq::Reserved`](crate::LtpReq::Reserved), not an error.
     pub fn read_ltp_requests(&mut self) -> Result<LtpRequests, ScdcError<T::Error>> {
         let flags1 = self
             .transport
-            .read(address::STATUS_FLAGS_1)
+            .read(codec::STATUS_FLAGS_1)
             .map_err(ScdcError::Transport)?;
         let flags2 = self
             .transport
-            .read(address::STATUS_FLAGS_2)
+            .read(codec::STATUS_FLAGS_2)
             .map_err(ScdcError::Transport)?;
-        let decode = |nibble: u8| {
-            LtpReq::from_nibble(nibble)
-                .ok_or(ScdcError::Protocol(ProtocolError::UnknownLtpReq(nibble)))
-        };
-        Ok(LtpRequests {
-            lane0: decode(flags1 & 0x0F)?,
-            lane1: decode(flags1 >> 4)?,
-            lane2: decode(flags2 & 0x0F)?,
-            lane3: decode(flags2 >> 4)?,
-        })
+        Ok(codec::decode_ltp_requests(flags1, flags2))
     }
 }
 
@@ -248,14 +216,13 @@ mod tests {
     }
 
     #[test]
-    fn ltp_requests_unknown_value() {
+    fn ltp_requests_undefined_values_are_reserved() {
         for nibble in 0x9u8..=0xD {
             let mut sim = TestTransport::new();
             sim.set(0x41, nibble); // lane 0
-            assert!(matches!(
-                Scdc::new(sim).read_ltp_requests(),
-                Err(ScdcError::Protocol(ProtocolError::UnknownLtpReq(n))) if n == nibble
-            ));
+            let requests = Scdc::new(sim).read_ltp_requests().unwrap();
+            assert_eq!(requests.lane0, LtpReq::Reserved(nibble));
+            assert_eq!(requests.lane1, LtpReq::None);
         }
     }
 

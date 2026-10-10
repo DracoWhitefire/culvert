@@ -1,7 +1,5 @@
 //! Typed SCDC register map: bitfield structs and typed values.
 
-pub(crate) mod address;
-
 use display_types::HdmiForumFrl;
 
 // Re-export for use in the public API.
@@ -133,39 +131,49 @@ impl SourceTestConfig {
 /// Link Training Pattern requested by the sink for one lane: a 4-bit field in
 /// `Status_Flags_1` (0x41, lanes 0–1) or `Status_Flags_2` (0x42, lanes 2–3).
 ///
-/// An undefined value (0x9–0xD) surfaces as [`ProtocolError::UnknownLtpReq`](crate::ProtocolError::UnknownLtpReq).
+/// Every 4-bit value decodes: the values the HDMI 2.1 specification leaves undefined
+/// (0x9–0xD) are [`Reserved`](Self::Reserved), with the raw value. Whether one matters
+/// depends on the lanes in use, which the link training layer knows and culvert does not.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LtpReq {
     /// 0x0: no pattern requested; the lane is trained.
-    None = 0x0,
+    None,
     /// 0x1: all-ones pattern.
-    AllOnes = 0x1,
+    AllOnes,
     /// 0x2: all-zeros pattern.
-    AllZeros = 0x2,
+    AllZeros,
     /// 0x3: Nyquist clock pattern.
-    NyquistClock = 0x3,
+    NyquistClock,
     /// 0x4: DDE compliance pattern (called RxDDE on the receiver side and TxDDE on the
     /// transmitter side of the Xilinx drivers).
-    RxDdeCompliance = 0x4,
+    RxDdeCompliance,
     /// 0x5: LFSR 0.
-    Lfsr0 = 0x5,
+    Lfsr0,
     /// 0x6: LFSR 1.
-    Lfsr1 = 0x6,
+    Lfsr1,
     /// 0x7: LFSR 2.
-    Lfsr2 = 0x7,
+    Lfsr2,
     /// 0x8: LFSR 3.
-    Lfsr3 = 0x8,
+    Lfsr3,
     /// 0xE: the sink requests a change of FFE level.
-    FfeChange = 0xE,
+    FfeChange,
     /// 0xF: the sink requests a lower FRL rate.
-    RateChange = 0xF,
+    RateChange,
+    /// 0x9–0xD: a value the specification leaves undefined.
+    ///
+    /// Build requests from a raw value with [`from_value`](Self::from_value), which only
+    /// produces `Reserved` for 0x9–0xD. A `Reserved` built by hand with any other value
+    /// is not a request a sink can send: `Reserved(0x5)` has the value of `Lfsr0` but
+    /// does not compare equal to it.
+    Reserved(u8),
 }
 
 impl LtpReq {
-    /// Decodes a 4-bit LTP request field; `None` for undefined values.
-    pub(crate) fn from_nibble(nibble: u8) -> Option<Self> {
-        Some(match nibble {
+    /// The request with the 4-bit `value`, or `None` above 0xF. Every value has exactly
+    /// one request: 0x9–0xD are [`Reserved`](Self::Reserved).
+    pub const fn from_value(value: u8) -> Option<Self> {
+        Some(match value {
             0x0 => Self::None,
             0x1 => Self::AllOnes,
             0x2 => Self::AllZeros,
@@ -175,10 +183,35 @@ impl LtpReq {
             0x6 => Self::Lfsr1,
             0x7 => Self::Lfsr2,
             0x8 => Self::Lfsr3,
+            0x9..=0xD => Self::Reserved(value),
             0xE => Self::FfeChange,
             0xF => Self::RateChange,
             _ => return None,
         })
+    }
+
+    /// Decodes a 4-bit LTP request field (the low nibble of `nibble`).
+    pub(crate) const fn from_nibble(nibble: u8) -> Self {
+        // Every 4-bit value has a request.
+        Self::from_value(nibble & 0x0F).unwrap()
+    }
+
+    /// The request's 4-bit value (for a `Reserved` built by hand, the value it holds).
+    pub const fn value(self) -> u8 {
+        match self {
+            Self::None => 0x0,
+            Self::AllOnes => 0x1,
+            Self::AllZeros => 0x2,
+            Self::NyquistClock => 0x3,
+            Self::RxDdeCompliance => 0x4,
+            Self::Lfsr0 => 0x5,
+            Self::Lfsr1 => 0x6,
+            Self::Lfsr2 => 0x7,
+            Self::Lfsr3 => 0x8,
+            Self::FfeChange => 0xE,
+            Self::RateChange => 0xF,
+            Self::Reserved(value) => value,
+        }
     }
 }
 
@@ -193,7 +226,9 @@ pub struct LtpRequests {
     pub lane1: LtpReq,
     /// Lane 2 (`Status_Flags_2` bits 3:0).
     pub lane2: LtpReq,
-    /// Lane 3 (`Status_Flags_2` bits 7:4); `LtpReq::None` in 3-lane FRL.
+    /// Lane 3 (`Status_Flags_2` bits 7:4). Not in use in 3-lane FRL, where it holds
+    /// whatever the sink leaves there (not necessarily `LtpReq::None`); the link training
+    /// layer ignores it.
     pub lane3: LtpReq,
 }
 
@@ -265,12 +300,12 @@ impl StatusFlags {
 
 /// Decoded content of `Update_0` (0x10).
 ///
-/// Flags are set by the sink to notify the source of state changes. The source
-/// reads and then clears them via [`Scdc::clear_update_flags`](crate::Scdc::clear_update_flags)
-/// (write-1-to-clear). `Update_1` (0x11) defines no fields and is not accessed.
-///
-/// Because this type is both returned by `read_update_flags` and accepted by
-/// `clear_update_flags`, use [`UpdateFlags::new`] to construct it.
+/// Flags are set by the sink to notify the source of state changes. The source reads them
+/// with [`Scdc::read_update_flags`](crate::Scdc::read_update_flags) and clears the ones it
+/// has handled with [`Scdc::clear_update_flags`](crate::Scdc::clear_update_flags)
+/// (write-1-to-clear), which takes a [`ClearableUpdateFlags`]: every flag but `RR_Test`.
+/// [`clearable`](Self::clearable) gives the flags just read in that form. `Update_1`
+/// (0x11) defines no fields and is not accessed.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UpdateFlags {
@@ -278,9 +313,8 @@ pub struct UpdateFlags {
     pub status_update: bool,
     /// Bit 1: CED counters have been updated; re-read the `ERR_DET` registers.
     pub ced_update: bool,
-    /// Bit 2: read request test. Never cleared by
-    /// [`Scdc::clear_update_flags`](crate::Scdc::clear_update_flags): the source must not
-    /// clear it.
+    /// Bit 2: read request test, owned by the sink. The source does not clear it, so
+    /// [`ClearableUpdateFlags`] has no field for it.
     pub rr_test: bool,
     /// Bit 3: the sink has written `Source_Test_Configuration` (0x35).
     pub source_test_update: bool,
@@ -307,6 +341,71 @@ impl UpdateFlags {
             status_update,
             ced_update,
             rr_test,
+            source_test_update,
+            frl_start,
+            flt_update,
+            rsed_update,
+        }
+    }
+
+    /// These flags as a clear: every flag but `RR_Test`, which the source does not clear.
+    /// `scdc.clear_update_flags(flags.clearable())` acknowledges every flag just read.
+    pub fn clearable(self) -> ClearableUpdateFlags {
+        ClearableUpdateFlags {
+            status_update: self.status_update,
+            ced_update: self.ced_update,
+            source_test_update: self.source_test_update,
+            frl_start: self.frl_start,
+            flt_update: self.flt_update,
+            rsed_update: self.rsed_update,
+        }
+    }
+}
+
+/// The `Update_0` flags a source may clear: every flag but `RR_Test` (bit 2).
+///
+/// Taken by [`Scdc::clear_update_flags`](crate::Scdc::clear_update_flags). Build it from
+/// flags just read with [`UpdateFlags::clearable`], or with [`new`](Self::new); the
+/// default clears nothing.
+///
+/// `RR_Test` (Read Request Test) has no field: culvert treats it as the one update flag the
+/// source must not clear. Only one reference states that rule (the Intel `xe` HDMI 2.1
+/// series: "Read Request Test is the only update flag the source cannot clear", rejecting
+/// it with `-EINVAL`), and another clears the bit regardless (Amlogic's HDMI 2.1
+/// transmitter). culvert follows the explicit rule because leaving a sink-owned test flag
+/// alone cannot break a sink's read-request test, while clearing it might. With a separate
+/// type, a clear that would include it cannot be written. The decision is provisional: see
+/// "RR_Test is not cleared" in `doc/architecture.md` for what would change it.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ClearableUpdateFlags {
+    /// Bit 0: general status has changed.
+    pub status_update: bool,
+    /// Bit 1: CED counters have been updated.
+    pub ced_update: bool,
+    /// Bit 3: the sink has written `Source_Test_Configuration` (0x35).
+    pub source_test_update: bool,
+    /// Bit 4: link training passed.
+    pub frl_start: bool,
+    /// Bit 5: the per-lane link training pattern requests have changed.
+    pub flt_update: bool,
+    /// Bit 6: the Reed-Solomon correction count has been updated.
+    pub rsed_update: bool,
+}
+
+impl ClearableUpdateFlags {
+    /// Constructs `ClearableUpdateFlags` from the flags to clear, in bit order.
+    pub fn new(
+        status_update: bool,
+        ced_update: bool,
+        source_test_update: bool,
+        frl_start: bool,
+        flt_update: bool,
+        rsed_update: bool,
+    ) -> Self {
+        Self {
+            status_update,
+            ced_update,
             source_test_update,
             frl_start,
             flt_update,
@@ -433,15 +532,33 @@ mod tests {
     }
 
     #[test]
-    fn ltp_req_from_nibble_covers_defined_values() {
-        let defined = [0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0xE, 0xF];
-        for n in 0u8..=0xF {
-            let decoded = LtpReq::from_nibble(n);
-            assert_eq!(decoded.is_some(), defined.contains(&n), "nibble {n:#x}");
-            if let Some(req) = decoded {
-                assert_eq!(req as u8, n);
-            }
+    fn ltp_req_from_value_gives_one_request_per_value() {
+        for value in 0u8..=0xF {
+            let request = LtpReq::from_value(value).unwrap();
+            assert_eq!(request.value(), value, "value {value:#x}");
+            assert_eq!(
+                matches!(request, LtpReq::Reserved(_)),
+                (0x9..=0xD).contains(&value),
+                "value {value:#x}"
+            );
         }
+        assert_eq!(LtpReq::from_value(0x10), None);
+        assert_eq!(LtpReq::from_value(0xFF), None);
+    }
+
+    #[test]
+    fn ltp_req_from_nibble_decodes_every_value() {
+        for n in 0u8..=0xF {
+            let req = LtpReq::from_nibble(n);
+            assert_eq!(req.value(), n, "nibble {n:#x}");
+            assert_eq!(
+                matches!(req, LtpReq::Reserved(_)),
+                (0x9..=0xD).contains(&n),
+                "nibble {n:#x}"
+            );
+        }
+        // Only the low nibble is a request.
+        assert_eq!(LtpReq::from_nibble(0xF3), LtpReq::NyquistClock);
     }
 
     #[test]
@@ -507,5 +624,36 @@ mod tests {
             );
             assert_eq!(all(f), args, "parameter {bit}");
         }
+    }
+
+    #[test]
+    fn clearable_update_flags_new_is_in_bit_order() {
+        let all = |f: ClearableUpdateFlags| {
+            [
+                f.status_update,
+                f.ced_update,
+                f.source_test_update,
+                f.frl_start,
+                f.flt_update,
+                f.rsed_update,
+            ]
+        };
+        for bit in 0..6 {
+            let mut args = [false; 6];
+            args[bit] = true;
+            let f = ClearableUpdateFlags::new(args[0], args[1], args[2], args[3], args[4], args[5]);
+            assert_eq!(all(f), args, "parameter {bit}");
+        }
+    }
+
+    #[test]
+    fn clearable_keeps_every_flag_but_rr_test() {
+        let read = UpdateFlags::new(true, true, true, true, true, true, true);
+        assert_eq!(
+            read.clearable(),
+            ClearableUpdateFlags::new(true, true, true, true, true, true)
+        );
+        let rr_test_only = UpdateFlags::new(false, false, true, false, false, false, false);
+        assert_eq!(rr_test_only.clearable(), ClearableUpdateFlags::default());
     }
 }
