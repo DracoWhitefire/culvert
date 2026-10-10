@@ -57,15 +57,17 @@ values.
 When compiled with `--features plumbob`, two more sets of tests run:
 
 - **Unit tests** call each method through the `plumbob::ScdcClient` trait against
-  `TestTransport` and assert on register bits: every request value (and 0x9 rejected as
-  `UnknownLtpReq`), each flag clear writing only its own bit, `Config_1` encoding
+  `TestTransport` and assert on register bits: every request value (and 0x9 passed on
+  as `LtpReq::Reserved`), each flag clear writing only its own bit, `Config_1` encoding
   (including FRL off), culvert's FFE-levels check, CED validity bits, and transport errors
   from every method.
 - **End-to-end tests** run plumbob's `FrlTrainer` through `Scdc<T>` against a sink
   simulated at the register level: `FLT_ready` after N reads, request nibbles posted in
   `Status_Flags_1/2` with `FLT_update`, write-1-to-clear `Update_0`, and `Config_1`
   starting and ending training. They cover a full training run, a rate drop, a timeout
-  and exhausted rates ending in TMDS, `FLT_no_timeout`, and an undefined request. They
+  and exhausted rates ending in TMDS, `FLT_no_timeout`, an undefined request ignored and
+  returned as a `TrainingWarning`, and a 3-lane link whose unused lane 3 reports an
+  undefined value. They
   check the whole chain — plumbob's sequencing, culvert's encoding, and the register bits
   in between.
 

@@ -27,7 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     seven flags in bit order.
   - Link training pattern requests are read per lane with `read_ltp_requests`.
     `LtpReq` follows the spec values: LFSR 0–3 are 0x5–0x8, and `AllOnes`, `AllZeros`,
-    `NyquistClock`, `RxDdeCompliance`, `FfeChange` and `RateChange` are added.
+    `NyquistClock`, `RxDdeCompliance`, `FfeChange` and `RateChange` are added. Every
+    value decodes: the undefined ones (0x9–0xD) are `LtpReq::Reserved(value)`, so a
+    stray value on one lane (such as the unused lane 3 at a 3-lane rate) no longer fails
+    the whole read; whether it matters is for the link training layer to decide.
+    `ProtocolError::UnknownLtpReq` is removed, and `codec::decode_ltp_requests` returns
+    `LtpRequests` rather than a `Result`. `LtpReq::value()` returns the 4-bit value.
   - `UpdateFlags` decodes all `Update_0` flags (`rr_test`, `source_test_update`,
     `frl_start`, `flt_update`, `rsed_update`); `frl_update` and `dsc_update` are
     removed, `Update_1` is no longer accessed, and `UpdateFlags::new` takes the seven

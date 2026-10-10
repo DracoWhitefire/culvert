@@ -51,8 +51,8 @@ impl<T: ScdcTransport> Scdc<T> {
     /// Reads the per-lane link training pattern requests from `Status_Flags_1` (0x41,
     /// lanes 0–1) and `Status_Flags_2` (0x42, lanes 2–3).
     ///
-    /// Returns [`crate::ProtocolError::UnknownLtpReq`] if any lane reports a value not
-    /// defined by the HDMI 2.1 specification.
+    /// A value the HDMI 2.1 specification leaves undefined (0x9–0xD) is
+    /// [`LtpReq::Reserved`](crate::LtpReq::Reserved), not an error.
     pub fn read_ltp_requests(&mut self) -> Result<LtpRequests, ScdcError<T::Error>> {
         let flags1 = self
             .transport
@@ -62,7 +62,7 @@ impl<T: ScdcTransport> Scdc<T> {
             .transport
             .read(codec::STATUS_FLAGS_2)
             .map_err(ScdcError::Transport)?;
-        codec::decode_ltp_requests(flags1, flags2).map_err(ScdcError::Protocol)
+        Ok(codec::decode_ltp_requests(flags1, flags2))
     }
 }
 
@@ -216,14 +216,13 @@ mod tests {
     }
 
     #[test]
-    fn ltp_requests_unknown_value() {
+    fn ltp_requests_undefined_values_are_reserved() {
         for nibble in 0x9u8..=0xD {
             let mut sim = TestTransport::new();
             sim.set(0x41, nibble); // lane 0
-            assert!(matches!(
-                Scdc::new(sim).read_ltp_requests(),
-                Err(ScdcError::Protocol(ProtocolError::UnknownLtpReq(n))) if n == nibble
-            ));
+            let requests = Scdc::new(sim).read_ltp_requests().unwrap();
+            assert_eq!(requests.lane0, LtpReq::Reserved(nibble));
+            assert_eq!(requests.lane1, LtpReq::None);
         }
     }
 

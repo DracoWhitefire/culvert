@@ -166,20 +166,15 @@ pub fn decode_status_flags(status_flags_0: u8) -> StatusFlags {
 /// Decodes the per-lane link training requests from `Status_Flags_1` (lanes 0–1) and
 /// `Status_Flags_2` (lanes 2–3), one nibble per lane, low nibble first.
 ///
-/// Returns [`ProtocolError::UnknownLtpReq`] if any lane reports a value not defined by
-/// the HDMI 2.1 specification.
-pub fn decode_ltp_requests(
-    status_flags_1: u8,
-    status_flags_2: u8,
-) -> Result<LtpRequests, ProtocolError> {
-    let decode =
-        |nibble: u8| LtpReq::from_nibble(nibble).ok_or(ProtocolError::UnknownLtpReq(nibble));
-    Ok(LtpRequests {
-        lane0: decode(status_flags_1 & 0x0F)?,
-        lane1: decode(status_flags_1 >> 4)?,
-        lane2: decode(status_flags_2 & 0x0F)?,
-        lane3: decode(status_flags_2 >> 4)?,
-    })
+/// Every value decodes: one the HDMI 2.1 specification leaves undefined (0x9–0xD) is
+/// [`LtpReq::Reserved`].
+pub fn decode_ltp_requests(status_flags_1: u8, status_flags_2: u8) -> LtpRequests {
+    LtpRequests {
+        lane0: LtpReq::from_nibble(status_flags_1),
+        lane1: LtpReq::from_nibble(status_flags_1 >> 4),
+        lane2: LtpReq::from_nibble(status_flags_2),
+        lane3: LtpReq::from_nibble(status_flags_2 >> 4),
+    }
 }
 
 /// Decodes the per-lane character error counts from the bytes of [`CED_REGISTERS`], in

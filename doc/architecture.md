@@ -223,7 +223,10 @@ culvert accesses (plus the CED checksum), `CED_REGISTERS` for the multi-register
 and one function per register that encodes a typed value into a byte or decodes bytes into
 a typed value — `encode_config_1`, `decode_ltp_requests`, `decode_ced`, and so on.
 Protocol checks live there too: `encode_config_1` rejects FFE levels above the rate's
-maximum and `decode_ltp_requests` rejects undefined requests, both as `ProtocolError`s.
+maximum as a `ProtocolError`. Decoding judges nothing it cannot judge: `decode_ltp_requests`
+decodes every value, the undefined ones (0x9–0xD) as `LtpReq::Reserved(value)`, because
+whether one matters depends on the lanes in use, which only the link training layer
+knows.
 
 `Scdc<T>`'s methods only perform the reads and writes and hand the bytes to `codec`.
 `culvert-async`'s client does the same with `.await`, so the sync and async clients share
@@ -274,20 +277,20 @@ pub struct SourceTestConfig {
 }
 
 /// Link Training Pattern requested by the sink for one lane (a 4-bit field in
-/// `Status_Flags_1`/`Status_Flags_2`). An undefined value surfaces as
-/// `ProtocolError::UnknownLtpReq`.
+/// `Status_Flags_1`/`Status_Flags_2`). `LtpReq::value()` returns the 4-bit value.
 pub enum LtpReq {
-    None              = 0x0,   // lane trained, no pattern requested
-    AllOnes           = 0x1,
-    AllZeros          = 0x2,
-    NyquistClock      = 0x3,
-    RxDdeCompliance   = 0x4,
-    Lfsr0             = 0x5,
-    Lfsr1             = 0x6,
-    Lfsr2             = 0x7,
-    Lfsr3             = 0x8,
-    FfeChange         = 0xE,   // sink requests an FFE level change
-    RateChange        = 0xF,   // sink requests a lower FRL rate
+    None,              // 0x0: lane trained, no pattern requested
+    AllOnes,           // 0x1
+    AllZeros,          // 0x2
+    NyquistClock,      // 0x3
+    RxDdeCompliance,   // 0x4
+    Lfsr0,             // 0x5
+    Lfsr1,             // 0x6
+    Lfsr2,             // 0x7
+    Lfsr3,             // 0x8
+    FfeChange,         // 0xE: sink requests an FFE level change
+    RateChange,        // 0xF: sink requests a lower FRL rate
+    Reserved(u8),      // 0x9–0xD: undefined by the specification
 }
 
 /// Per-lane pattern requests from `Status_Flags_1` (0x41) and `Status_Flags_2` (0x42).
@@ -350,14 +353,13 @@ Culvert surfaces two distinct failure categories:
 pub enum ScdcError<E> {
     /// The underlying I²C/DDC transport returned an error.
     Transport(E),
-    /// The register data violates the SCDC protocol (e.g. an undefined LTP request value).
+    /// The register data violates the SCDC protocol (e.g. FFE levels the rate prohibits).
     Protocol(ProtocolError),
 }
 
 #[non_exhaustive]
 pub enum ProtocolError {
     UnknownFrlRate(u8),   // reserved; no current method reads an FRL rate back
-    UnknownLtpReq(u8),
     FfeLevelsOutOfRange { rate: FrlRate, levels: u8 },
 }
 ```
@@ -367,7 +369,7 @@ are distinct. A caller that only cares about transport health can match on `Tran
 one that wants to diagnose unexpected sink behaviour inspects `Protocol(_)`.
 
 Both enums are `#[non_exhaustive]` at the type level, consistent with the rest of the
-stack. Variants are plain — callers can match `UnknownLtpReq(value)` without `..`.
+stack. Tuple variants are plain — callers can match `UnknownFrlRate(value)` without `..`.
 
 `ScdcError` is `#[non_exhaustive]` to allow future variants without a breaking change.
 

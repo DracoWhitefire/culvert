@@ -5,10 +5,7 @@
 //! returned values and register contents.
 
 use core::convert::Infallible;
-use culvert::{
-    Config0, FfeLevels, FrlConfig, FrlRate, LtpReq, ProtocolError, Scdc, ScdcError, TmdsConfig,
-    UpdateFlags,
-};
+use culvert::{Config0, FfeLevels, FrlConfig, FrlRate, LtpReq, Scdc, TmdsConfig, UpdateFlags};
 use hdmi_hal::scdc::ScdcTransport;
 
 // ── simulated transport ───────────────────────────────────────────────────────
@@ -158,15 +155,15 @@ fn read_ltp_requests_decodes_lanes() {
 }
 
 #[test]
-fn read_ltp_requests_unknown_value() {
+fn read_ltp_requests_undefined_value() {
     let mut transport = SimulatedScdc::new();
     transport.set(0x42, 0xA0); // lane 3 = 0xA, undefined
     let mut scdc = Scdc::new(transport);
 
-    assert!(matches!(
-        scdc.read_ltp_requests(),
-        Err(ScdcError::Protocol(ProtocolError::UnknownLtpReq(0xA)))
-    ));
+    assert_eq!(
+        scdc.read_ltp_requests().unwrap().lane3,
+        LtpReq::Reserved(0xA)
+    );
 }
 
 #[test]

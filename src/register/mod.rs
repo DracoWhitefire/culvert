@@ -131,39 +131,43 @@ impl SourceTestConfig {
 /// Link Training Pattern requested by the sink for one lane: a 4-bit field in
 /// `Status_Flags_1` (0x41, lanes 0–1) or `Status_Flags_2` (0x42, lanes 2–3).
 ///
-/// An undefined value (0x9–0xD) surfaces as [`ProtocolError::UnknownLtpReq`](crate::ProtocolError::UnknownLtpReq).
+/// Every 4-bit value decodes: the values the HDMI 2.1 specification leaves undefined
+/// (0x9–0xD) are [`Reserved`](Self::Reserved), with the raw value. Whether one matters
+/// depends on the lanes in use, which the link training layer knows and culvert does not.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LtpReq {
     /// 0x0: no pattern requested; the lane is trained.
-    None = 0x0,
+    None,
     /// 0x1: all-ones pattern.
-    AllOnes = 0x1,
+    AllOnes,
     /// 0x2: all-zeros pattern.
-    AllZeros = 0x2,
+    AllZeros,
     /// 0x3: Nyquist clock pattern.
-    NyquistClock = 0x3,
+    NyquistClock,
     /// 0x4: DDE compliance pattern (called RxDDE on the receiver side and TxDDE on the
     /// transmitter side of the Xilinx drivers).
-    RxDdeCompliance = 0x4,
+    RxDdeCompliance,
     /// 0x5: LFSR 0.
-    Lfsr0 = 0x5,
+    Lfsr0,
     /// 0x6: LFSR 1.
-    Lfsr1 = 0x6,
+    Lfsr1,
     /// 0x7: LFSR 2.
-    Lfsr2 = 0x7,
+    Lfsr2,
     /// 0x8: LFSR 3.
-    Lfsr3 = 0x8,
+    Lfsr3,
     /// 0xE: the sink requests a change of FFE level.
-    FfeChange = 0xE,
+    FfeChange,
     /// 0xF: the sink requests a lower FRL rate.
-    RateChange = 0xF,
+    RateChange,
+    /// 0x9–0xD: a value the specification leaves undefined.
+    Reserved(u8),
 }
 
 impl LtpReq {
-    /// Decodes a 4-bit LTP request field; `None` for undefined values.
-    pub(crate) fn from_nibble(nibble: u8) -> Option<Self> {
-        Some(match nibble {
+    /// Decodes a 4-bit LTP request field (the low nibble of `nibble`).
+    pub(crate) const fn from_nibble(nibble: u8) -> Self {
+        match nibble & 0x0F {
             0x0 => Self::None,
             0x1 => Self::AllOnes,
             0x2 => Self::AllZeros,
@@ -175,8 +179,26 @@ impl LtpReq {
             0x8 => Self::Lfsr3,
             0xE => Self::FfeChange,
             0xF => Self::RateChange,
-            _ => return None,
-        })
+            undefined => Self::Reserved(undefined),
+        }
+    }
+
+    /// The request's 4-bit value.
+    pub const fn value(self) -> u8 {
+        match self {
+            Self::None => 0x0,
+            Self::AllOnes => 0x1,
+            Self::AllZeros => 0x2,
+            Self::NyquistClock => 0x3,
+            Self::RxDdeCompliance => 0x4,
+            Self::Lfsr0 => 0x5,
+            Self::Lfsr1 => 0x6,
+            Self::Lfsr2 => 0x7,
+            Self::Lfsr3 => 0x8,
+            Self::FfeChange => 0xE,
+            Self::RateChange => 0xF,
+            Self::Reserved(value) => value,
+        }
     }
 }
 
@@ -431,15 +453,18 @@ mod tests {
     }
 
     #[test]
-    fn ltp_req_from_nibble_covers_defined_values() {
-        let defined = [0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0xE, 0xF];
+    fn ltp_req_from_nibble_decodes_every_value() {
         for n in 0u8..=0xF {
-            let decoded = LtpReq::from_nibble(n);
-            assert_eq!(decoded.is_some(), defined.contains(&n), "nibble {n:#x}");
-            if let Some(req) = decoded {
-                assert_eq!(req as u8, n);
-            }
+            let req = LtpReq::from_nibble(n);
+            assert_eq!(req.value(), n, "nibble {n:#x}");
+            assert_eq!(
+                matches!(req, LtpReq::Reserved(_)),
+                (0x9..=0xD).contains(&n),
+                "nibble {n:#x}"
+            );
         }
+        // Only the low nibble is a request.
+        assert_eq!(LtpReq::from_nibble(0xF3), LtpReq::NyquistClock);
     }
 
     #[test]
