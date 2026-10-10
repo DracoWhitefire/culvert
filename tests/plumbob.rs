@@ -9,12 +9,13 @@
 use core::cell::RefCell;
 use core::convert::Infallible;
 
-use culvert::Scdc;
+use culvert::{Scdc, ScdcError};
 use display_types::cea861::hdmi_forum::HdmiForumFrl;
 use hdmi_hal::phy::{EqParams, FrlOutput, HdmiPhy, LanePatterns, LtpPattern};
 use hdmi_hal::scdc::ScdcTransport;
 use plumbob::{
-    FallbackReason, FfeLevels, FrlTrainer, TrainingConfig, TrainingOutcome, TrainingWarning,
+    FallbackReason, FfeLevels, FrlTrainer, TmdsExit, TrainingConfig, TrainingError, TrainingEvent,
+    TrainingOutcome, TrainingWarning,
 };
 
 const UPDATE_0: u8 = 0x10;
@@ -53,6 +54,8 @@ struct Sink {
     update_polls: u32,
     /// Every value written to `Config_1`, in order.
     config_1_writes: Vec<u8>,
+    /// The next read of this register fails (a DDC NACK), once.
+    nack_read_of: Option<u8>,
 }
 
 impl Sink {
@@ -68,6 +71,7 @@ impl Sink {
             configured: false,
             update_polls: 0,
             config_1_writes: Vec::new(),
+            nack_read_of: None,
         }
     }
 
@@ -139,14 +143,23 @@ impl Sink {
 /// `RefCell`.
 struct SinkTransport(RefCell<Sink>);
 
-impl ScdcTransport for SinkTransport {
-    type Error = Infallible;
+/// A DDC NACK.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Nack;
 
-    fn read(&self, reg: u8) -> Result<u8, Infallible> {
-        Ok(self.0.borrow_mut().read(reg))
+impl ScdcTransport for SinkTransport {
+    type Error = Nack;
+
+    fn read(&self, reg: u8) -> Result<u8, Nack> {
+        let mut sink = self.0.borrow_mut();
+        if sink.nack_read_of == Some(reg) {
+            sink.nack_read_of = None;
+            return Err(Nack);
+        }
+        Ok(sink.read(reg))
     }
 
-    fn write(&mut self, reg: u8, value: u8) -> Result<(), Infallible> {
+    fn write(&mut self, reg: u8, value: u8) -> Result<(), Nack> {
         self.0.get_mut().write(reg, value);
         Ok(())
     }
@@ -418,8 +431,16 @@ fn frl_start_together_with_flt_update_retrains() {
     ];
     sink.frl_start_with_round = Some(2);
     sink.frl_start_after = Some(0);
-    let (outcome, sink, phy) = train(sink, &[R12], &ffe_3());
+    let mut trainer = FrlTrainer::new(Scdc::new(SinkTransport(RefCell::new(sink))), Phy::default());
+    let mut events = Vec::new();
+    let outcome = trainer
+        .train_with_events(&[R12], &ffe_3(), &mut |event| events.push(event))
+        .unwrap()
+        .outcome;
+    let (scdc, phy) = trainer.into_parts();
+    let sink = scdc.into_transport().0.into_inner();
     assert_eq!(outcome, TrainingOutcome::Success { achieved_rate: R12 });
+    assert!(events.contains(&TrainingEvent::FrlStartWithRetrain));
     assert_eq!(
         sink.regs[UPDATE_0 as usize], 0,
         "every flag plumbob saw is cleared"
@@ -431,6 +452,33 @@ fn frl_start_together_with_flt_update_retrains() {
         lane2: lfsr1,
         lane3: lfsr1,
     }));
+}
+
+#[test]
+fn an_io_error_mid_training_exits_to_tmds() {
+    // A DDC NACK reading the lane requests in LTS:3: plumbob still runs LTS:L, which turns
+    // FRL off in Config_1, returns the PHY to TMDS and clears the pending FLT_update.
+    let mut sink = Sink::new();
+    sink.flt_ready_after = Some(0);
+    sink.rounds = vec![round(0, [0x5; 4])];
+    sink.nack_read_of = Some(STATUS_FLAGS_1);
+    let mut trainer = FrlTrainer::new(Scdc::new(SinkTransport(RefCell::new(sink))), Phy::default());
+    let result = trainer.train(&[R12], &ffe_3());
+    assert!(
+        matches!(
+            result,
+            Err(TrainingError::Scdc {
+                error: ScdcError::Transport(Nack),
+                exit: TmdsExit::Exited
+            })
+        ),
+        "{result:?}"
+    );
+    let (scdc, phy) = trainer.into_parts();
+    let sink = scdc.into_transport().0.into_inner();
+    assert_eq!(sink.config_1_writes, [0x36, 0x00]);
+    assert_eq!(phy.rates, [R12, HdmiForumFrl::NotSupported]);
+    assert_eq!(sink.regs[UPDATE_0 as usize] & FLT_UPDATE, 0);
 }
 
 #[test]

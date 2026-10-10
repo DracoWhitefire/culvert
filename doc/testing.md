@@ -68,13 +68,15 @@ When compiled with `--features plumbob`, two more sets of tests run:
 - **End-to-end tests** run plumbob's `FrlTrainer` through `Scdc<T>` against a sink
   simulated at the register level: `FLT_ready` after N reads, request nibbles posted in
   `Status_Flags_1/2` with `FLT_update`, write-1-to-clear `Update_0`, and `Config_1`
-  starting and ending training. They cover a full training run, a rate drop, a timeout
-  and exhausted rates ending in TMDS, `FLT_no_timeout`, an undefined request ignored and
-  returned as a `TrainingWarning`, a 3-lane link whose unused lane 3 reports an
-  undefined value, `FRL_start` and `FLT_update` set together (the retrain wins), a
-  retrain resuming from no pattern, the `Update_0` flags plumbob does not handle left set,
-  and the FFE maximum limited per rate in the `Config_1` byte. They check the whole chain — plumbob's sequencing, culvert's encoding, and the register bits
-  in between.
+  starting and ending training. They cover a full training run, a rate drop, a timeout and
+  exhausted rates ending in TMDS, `FLT_no_timeout`, an undefined request ignored and
+  returned as a `TrainingWarning`, a 3-lane link whose unused lane 3 reports an undefined
+  value, `FRL_start` and `FLT_update` set together (the retrain wins, and
+  `FrlStartWithRetrain` is recorded), a DDC NACK mid-LTS:3 still ending in LTS:L
+  (`Config_1` back to 0, the PHY in TMDS, `FLT_update` cleared), a retrain resuming from
+  no pattern, the `Update_0` flags plumbob does not handle left set, and the FFE maximum
+  limited per rate in the `Config_1` byte. They check the whole chain — plumbob's
+  sequencing, culvert's encoding, and the register bits in between.
 
 CI's coverage run uses the default features, so these tests are not part of the coverage
 ratchet; the feature's module is fully covered when measured with `--features plumbob`.
