@@ -344,8 +344,9 @@ fn an_undefined_request_is_a_protocol_error() {
 
     assert!(matches!(
         result,
-        Err(plumbob::TrainingError::Scdc(culvert::ScdcError::Protocol(
-            culvert::ProtocolError::UnknownLtpReq(0x9)
-        )))
+        Err(plumbob::TrainingError::Scdc {
+            error: culvert::ScdcError::Protocol(culvert::ProtocolError::UnknownLtpReq(0x9)),
+            exit: plumbob::TmdsExit::Exited,
+        })
     ));
 }
