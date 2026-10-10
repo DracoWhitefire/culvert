@@ -46,6 +46,8 @@ struct Sink {
     rounds: Vec<Round>,
     next_round: usize,
     frl_start_after: Option<u32>,
+    /// Raises `FRL_start` together with `FLT_update` when this round is posted.
+    frl_start_with_round: Option<usize>,
     /// Training runs while `Config_1` holds an FRL rate.
     configured: bool,
     update_polls: u32,
@@ -62,6 +64,7 @@ impl Sink {
             rounds: Vec::new(),
             next_round: 0,
             frl_start_after: None,
+            frl_start_with_round: None,
             configured: false,
             update_polls: 0,
             config_1_writes: Vec::new(),
@@ -94,6 +97,9 @@ impl Sink {
                 self.regs[STATUS_FLAGS_1 as usize] = l0 | (l1 << 4);
                 self.regs[STATUS_FLAGS_2 as usize] = l2 | (l3 << 4);
                 self.regs[UPDATE_0 as usize] |= FLT_UPDATE;
+                if self.frl_start_with_round == Some(self.next_round) {
+                    self.regs[UPDATE_0 as usize] |= FRL_START;
+                }
             }
             None if self.frl_start_after.is_some_and(|n| self.update_polls >= n) => {
                 self.regs[UPDATE_0 as usize] |= FRL_START;
@@ -112,8 +118,8 @@ impl Sink {
                     self.next_round += 1;
                     self.update_polls = 0;
                 }
-                if value & set & FRL_START != 0 {
-                    // FRL_start is set once.
+                if value & set & FRL_START != 0 && self.next_round >= self.rounds.len() {
+                    // FRL_start is set once; one raised with a round does not use it up.
                     self.frl_start_after = None;
                 }
                 self.regs[UPDATE_0 as usize] = set & !value;
@@ -397,4 +403,89 @@ fn a_three_lane_link_ignores_an_undefined_lane_3_nibble() {
             in_use: false,
         }]
     );
+}
+
+#[test]
+fn frl_start_together_with_flt_update_retrains() {
+    // LTS:P sees both flags at once: the retrain wins, and the second pass starts.
+    let mut sink = Sink::new();
+    sink.flt_ready_after = Some(0);
+    sink.rounds = vec![
+        round(0, [0x5; 4]),
+        round(0, [0x0; 4]),
+        round(0, [0x6; 4]),
+        round(0, [0x0; 4]),
+    ];
+    sink.frl_start_with_round = Some(2);
+    sink.frl_start_after = Some(0);
+    let (outcome, sink, phy) = train(sink, &[R12], &ffe_3());
+    assert_eq!(outcome, TrainingOutcome::Success { achieved_rate: R12 });
+    assert_eq!(
+        sink.regs[UPDATE_0 as usize], 0,
+        "every flag plumbob saw is cleared"
+    );
+    let lfsr1 = Some(LtpPattern::Lfsr1);
+    assert!(phy.patterns.contains(&LanePatterns {
+        lane0: lfsr1,
+        lane1: lfsr1,
+        lane2: lfsr1,
+        lane3: lfsr1,
+    }));
+}
+
+#[test]
+fn a_retrain_resumes_from_no_pattern_at_register_level() {
+    let mut sink = Sink::new();
+    sink.flt_ready_after = Some(0);
+    sink.rounds = vec![
+        round(0, [0x5; 4]),
+        round(0, [0x0; 4]),
+        // The retrain: only lane 0 asks for a pattern (LFSR 1).
+        round(1, [0x6, 0x0, 0x0, 0x0]),
+        round(0, [0x0; 4]),
+    ];
+    sink.frl_start_after = Some(0);
+    let (outcome, sink, phy) = train(sink, &[R12], &ffe_3());
+    assert_eq!(outcome, TrainingOutcome::Success { achieved_rate: R12 });
+    assert_eq!(sink.regs[UPDATE_0 as usize], 0);
+    assert!(phy.patterns.contains(&LanePatterns {
+        lane0: Some(LtpPattern::Lfsr1),
+        lane1: None,
+        lane2: None,
+        lane3: None,
+    }));
+}
+
+#[test]
+fn update_0_flags_plumbob_does_not_handle_are_left_set() {
+    let mut sink = Sink::new();
+    // Status_Update, CED_Update, RR_Test and RSED_Update.
+    sink.regs[UPDATE_0 as usize] = 0x01 | 0x02 | 0x04 | 0x40;
+    sink.flt_ready_after = Some(0);
+    sink.rounds = vec![round(0, [0x5; 4]), round(0, [0x0; 4])];
+    sink.frl_start_after = Some(0);
+    let (outcome, sink, _) = train(sink, &[R12], &ffe_3());
+    assert_eq!(outcome, TrainingOutcome::Success { achieved_rate: R12 });
+    assert_eq!(sink.regs[UPDATE_0 as usize], 0x47);
+}
+
+#[test]
+fn the_ffe_maximum_is_limited_per_rate_through_culvert() {
+    // FfeLevels::MAX is 7; up to 12 Gbps a sink allows 3.
+    for (rate, config_1) in [(R12, 0x36u8), (HdmiForumFrl::Rate3Gbps3Lanes, 0x31)] {
+        let mut sink = Sink::new();
+        sink.flt_ready_after = Some(0);
+        sink.rounds = vec![round(0, [0x0; 4])];
+        sink.frl_start_after = Some(0);
+        let mut config = TrainingConfig::default();
+        config.ffe_levels = FfeLevels::MAX;
+        let (outcome, sink, _) = train(sink, &[rate], &config);
+        assert_eq!(
+            outcome,
+            TrainingOutcome::Success {
+                achieved_rate: rate
+            }
+        );
+        assert_eq!(sink.config_1_writes, [config_1]);
+    }
 }
