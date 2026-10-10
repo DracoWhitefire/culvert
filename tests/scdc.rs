@@ -5,7 +5,9 @@
 //! returned values and register contents.
 
 use core::convert::Infallible;
-use culvert::{Config0, FfeLevels, FrlConfig, FrlRate, LtpReq, Scdc, TmdsConfig, UpdateFlags};
+use culvert::{
+    ClearableUpdateFlags, Config0, FfeLevels, FrlConfig, FrlRate, LtpReq, Scdc, TmdsConfig,
+};
 use hdmi_hal::scdc::ScdcTransport;
 
 // ── simulated transport ───────────────────────────────────────────────────────
@@ -187,8 +189,8 @@ fn clear_update_flags_writes_w1c() {
     let mut scdc = Scdc::new(SimulatedScdc::new());
 
     // Clear only flt_update and frl_start.
-    scdc.clear_update_flags(UpdateFlags::new(
-        false, false, false, false, true, true, false,
+    scdc.clear_update_flags(ClearableUpdateFlags::new(
+        false, false, false, true, true, false,
     ))
     .unwrap();
 

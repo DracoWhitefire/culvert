@@ -36,12 +36,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `UpdateFlags` decodes all `Update_0` flags (`rr_test`, `source_test_update`,
     `frl_start`, `flt_update`, `rsed_update`); `frl_update` and `dsc_update` are
     removed, `Update_1` is no longer accessed, and `UpdateFlags::new` takes the seven
-    flags in bit order. `clear_update_flags` refuses to clear `rr_test`, returning the
-    new `ProtocolError::RrTestNotClearable` and writing nothing, instead of silently
-    leaving it out of the write: culvert treats Read Request Test as a flag the source
-    must not clear. The rule comes from the Intel `xe` series alone, and Amlogic's driver
-    clears the bit, so it is provisional; `doc/architecture.md` records the evidence, the
-    reasoning and what would change it.
+    flags in bit order. `clear_update_flags` takes the new `ClearableUpdateFlags` —
+    every flag but `rr_test` — instead of `UpdateFlags`, and `codec::encode_clear_update_flags`
+    is infallible: culvert treats Read Request Test as a flag the source must not clear,
+    and used to leave it out of the write silently. `UpdateFlags::clearable()` turns
+    flags just read into a clear of everything else, so a read-then-clear works on a sink
+    that keeps `RR_Test` set. The rule comes from the Intel `xe` series alone, and
+    Amlogic's driver clears the bit, so it is provisional; `doc/architecture.md` records
+    the evidence, the reasoning and what would change it.
 - **The `plumbob` feature implements plumbob's per-lane `ScdcClient`.** plumbob 0.1's
   interface (`read_training_status`, a single link training pattern request) could not
   work with the corrected register map. `Scdc<T>` now implements the one-method-per-register

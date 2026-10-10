@@ -9,8 +9,8 @@ use plumbob::ScdcClient;
 
 use crate::error::ScdcError;
 use crate::register::{
-    CedCount, CedCounters, Config0, FfeLevels, FrlConfig, LtpReq, LtpRequests, SourceTestConfig,
-    UpdateFlags,
+    CedCount, CedCounters, ClearableUpdateFlags, Config0, FfeLevels, FrlConfig, LtpReq,
+    LtpRequests, SourceTestConfig, UpdateFlags,
 };
 
 use super::Scdc;
@@ -98,10 +98,9 @@ impl From<UpdateFlags> for plumbob::UpdateFlags {
 }
 
 /// The flags plumbob clears; every other `Update_0` flag is left as it is.
-impl From<plumbob::UpdateFlags> for UpdateFlags {
+impl From<plumbob::UpdateFlags> for ClearableUpdateFlags {
     fn from(flags: plumbob::UpdateFlags) -> Self {
-        UpdateFlags::new(
-            false,
+        ClearableUpdateFlags::new(
             false,
             false,
             flags.source_test_update,

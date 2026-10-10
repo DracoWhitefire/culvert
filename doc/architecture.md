@@ -83,8 +83,9 @@ see [Sources](#sources) for how each was established.
   `Source_Test_Update` (bit 3), `FRL_Start` (bit 4), `FLT_Update` (bit 5),
   `RSED_Update` (bit 6). The source reads and then clears these to detect sink-side
   state changes without polling every status register on every pass. culvert treats
-  `RR_Test` as a flag the source must not clear: `clear_update_flags` refuses it (see
-  "`RR_Test` is not cleared" below — a provisional decision resting on one source).
+  `RR_Test` as a flag the source must not clear: `clear_update_flags` takes
+  `ClearableUpdateFlags`, which has no field for it (see "`RR_Test` is not cleared"
+  below — a provisional decision resting on one source).
 - `Update_1` (0x11) — no fields are defined by the sources below; culvert does not
   access it.
 
@@ -155,10 +156,11 @@ AMD's display driver (`hdmi_frl_get_max_ffe_level`). A sink treats a prohibited 
 
 ### `RR_Test` is not cleared (provisional)
 
-**Rule.** `clear_update_flags` (and `codec::encode_clear_update_flags`) refuses to clear
-`Update_0` bit 2, `RR_Test` (Read Request Test): a request with `rr_test` set returns
-`ProtocolError::RrTestNotClearable` and writes nothing, not even the other flags in the
-request.
+**Rule.** culvert never clears `Update_0` bit 2, `RR_Test` (Read Request Test).
+`clear_update_flags` (and `codec::encode_clear_update_flags`) takes `ClearableUpdateFlags`,
+which has every update flag but `RR_Test`, so a clear that includes it cannot be written.
+`read_update_flags` still reports it in `UpdateFlags`, and `UpdateFlags::clearable()`
+turns the flags just read into a clear of everything else.
 
 **Evidence.** Unlike the field layout above, this rule rests on a single source, and
 another contradicts it:
@@ -179,20 +181,33 @@ another contradicts it:
   nothing, as far as any source shows.
 - Nothing in the stack needs to clear it: plumbob clears only `FLT_update`, `FRL_start`
   and `Source_Test_Update`.
-- The refusal is an error, not a silent omission. culvert used to drop `rr_test` from the
-  write and return `Ok(())`, leaving the caller to believe the flag was cleared.
+- Nothing is dropped silently. culvert used to leave `rr_test` out of the write and
+  return `Ok(())`, leaving the caller to believe the flag was cleared; with no field for
+  it, the clear says exactly what is written.
+
+**Why a separate type (October 2026).** A first version kept one `UpdateFlags` for reads
+and clears and refused a clear with `rr_test` set (`ProtocolError::RrTestNotClearable`,
+writing nothing). The second review of the FRL rework showed the cost: a caller that
+clears what it has just read — the natural loop for an integration layer, a kernel driver
+or firmware watching `Status_Update`, `CED_Update` and `FLT_update` after training — works
+on every ordinary sink and fails on every clear once a sink sets `RR_Test`, which is to
+say on compliance equipment, leaving `FLT_update` set. The bug would surface late, in
+front of a tester. With a separate type it cannot be written: the compiler catches it,
+`clearable()` names the one bit left out at the call site, and the refusal error is gone.
 
 **Alternatives considered.** Following Amlogic and writing whatever the caller asks
-(most literal register access, but lets a caller break an RR test if Intel is right); a
-separate flags type for clears without `rr_test` (compile-time, but a second type for one
-bit); keeping the silent omission (rejected: no silent failures).
+(most literal register access, but lets a caller break an RR test if Intel is right); one
+type for reads and clears with a run-time refusal (the first version, above); a helper
+that strips `rr_test` from `UpdateFlags` (helps only callers who know to use it); keeping
+the silent omission (rejected: no silent failures).
 
 **Revisit when** any of these appears: the specification's text on `RR_Test`; a second
 implementation that states or contradicts the rule (for example, a clear helper in
 mainline `drm_scdc`); a sink that keeps `RR_Test` set and appears to expect the source to
-clear it; or a compliance report either way. Dropping the rule means removing the check in
-`codec::encode_clear_update_flags` (and, at a breaking release, the
-`RrTestNotClearable` variant), and updating this section.
+clear it; or a compliance report either way. Dropping the rule means adding an `rr_test`
+field to `ClearableUpdateFlags` (non-breaking for code that reads its fields, as the type
+is `#[non_exhaustive]`; `new` gains a parameter, which is breaking), encoding it in
+`codec::encode_clear_update_flags`, and updating this section.
 
 ---
 
@@ -227,7 +242,7 @@ impl<T: ScdcTransport> Scdc<T> {
     pub fn read_status_flags(&mut self) -> Result<StatusFlags, ScdcError<T::Error>>;
     pub fn read_ltp_requests(&mut self) -> Result<LtpRequests, ScdcError<T::Error>>;
     pub fn read_update_flags(&mut self) -> Result<UpdateFlags, ScdcError<T::Error>>;
-    pub fn clear_update_flags(&mut self, flags: UpdateFlags) -> Result<(), ScdcError<T::Error>>;
+    pub fn clear_update_flags(&mut self, flags: ClearableUpdateFlags) -> Result<(), ScdcError<T::Error>>;
 
     // CED
     pub fn read_ced(&mut self) -> Result<CedCounters, ScdcError<T::Error>>;
@@ -365,6 +380,17 @@ pub struct UpdateFlags {
     pub rsed_update: bool,          // bit 6
 }
 
+/// The `Update_0` flags a source may clear: every flag but `RR_Test`.
+/// `UpdateFlags::clearable()` gives the flags just read in this form.
+pub struct ClearableUpdateFlags {
+    pub status_update: bool,        // bit 0
+    pub ced_update: bool,           // bit 1
+    pub source_test_update: bool,   // bit 3
+    pub frl_start: bool,            // bit 4
+    pub flt_update: bool,           // bit 5
+    pub rsed_update: bool,          // bit 6
+}
+
 /// A 15-bit character error count decoded from an ERR_DET register pair.
 /// The high byte's bit 7 is the validity flag; the counter occupies bits[14:0].
 /// `CedCount::value()` returns the raw count as a `u16` (always <= 0x7FFF).
@@ -403,7 +429,6 @@ pub enum ScdcError<E> {
 pub enum ProtocolError {
     UnknownFrlRate(u8),   // reserved; no current method reads an FRL rate back
     FfeLevelsOutOfRange { rate: FrlRate, levels: u8 },
-    RrTestNotClearable,   // a clear asked for RR_Test; nothing written (see above)
 }
 ```
 

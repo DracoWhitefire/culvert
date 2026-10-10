@@ -6,7 +6,7 @@
 //! and write paths.
 
 use core::convert::Infallible;
-use culvert::{FfeLevels, FrlConfig, FrlRate, Scdc, TmdsConfig, UpdateFlags};
+use culvert::{ClearableUpdateFlags, FfeLevels, FrlConfig, FrlRate, Scdc, TmdsConfig};
 use hdmi_hal::scdc::ScdcTransport;
 
 // ── simulated transport ───────────────────────────────────────────────────────
@@ -137,8 +137,8 @@ fn main() {
     println!("Wrote Config_1: frl_rate=6G/3L, ffe_levels=2");
 
     // Acknowledge the flt_update flag (write-1-to-clear).
-    scdc.clear_update_flags(UpdateFlags::new(
-        false, false, false, false, false, true, false,
+    scdc.clear_update_flags(ClearableUpdateFlags::new(
+        false, false, false, false, true, false,
     ))
     .unwrap();
     println!("Cleared flt_update flag");

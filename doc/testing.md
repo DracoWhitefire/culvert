@@ -31,8 +31,10 @@ Each register group has tests covering:
 - **Decoding correctness** — every field of a read result is extracted from the correct
   bit position. Register values are crafted to isolate individual bits where necessary.
 - **Protocol errors** — what culvert refuses produces the correct `ProtocolError`
-  variant before anything is written: FFE levels above the rate's maximum, and a clear of
-  `Update_0` that asks for `RR_Test` (checked with a sentinel in the register). Undefined
+  variant before anything is written: FFE levels above the rate's maximum. A clear of
+  `Update_0` cannot ask for `RR_Test` (`ClearableUpdateFlags` has no field for it); a test
+  reads `RR_Test` and `FLT_update` set and clears what it read, which writes `FLT_update`
+  only. Undefined
   values the sink reports are not errors: each undefined `LtpReq` nibble (0x9–0xD) decodes
   to `LtpReq::Reserved` with its raw value.
 - **Transport error propagation** — every read and write call site has a

@@ -37,15 +37,4 @@ pub enum ProtocolError {
         /// The requested FFE levels.
         levels: u8,
     },
-    /// A clear of `Update_0` asked for `RR_Test` (Read Request Test, bit 2). Nothing is
-    /// written.
-    ///
-    /// culvert treats `RR_Test` as the one update flag the source must not clear. Only one
-    /// reference states that rule (the Intel `xe` HDMI 2.1 series: "Read Request Test is
-    /// the only update flag the source cannot clear", rejecting it with `-EINVAL`), and
-    /// another clears the bit regardless (Amlogic's HDMI 2.1 transmitter). culvert follows
-    /// the explicit rule because leaving a sink-owned test flag alone cannot break a sink's
-    /// read-request test, while clearing it might. The decision is provisional: see
-    /// "RR_Test is not cleared" in `doc/architecture.md` for what would change it.
-    RrTestNotClearable,
 }
