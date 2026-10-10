@@ -78,12 +78,13 @@ When compiled with `--features plumbob`, two more sets of tests run:
   limited per rate in the `Config_1` byte. They check the whole chain — plumbob's
   sequencing, culvert's encoding, and the register bits in between.
 
-CI's coverage run uses the default features, so these tests are not part of the coverage
-ratchet; the feature's module is fully covered when measured with `--features plumbob`.
+CI's coverage run measures the default features and `--features plumbob` together, so
+the feature's module is part of the coverage ratchet.
 
 ## Coverage
 
-CI measures line coverage with `cargo-llvm-cov`. The baseline is stored in
+CI measures line coverage with `cargo-llvm-cov`, over the default features and the
+`plumbob` feature merged into one report. The baseline is stored in
 `.coverage-baseline` (currently 100%); CI fails if coverage drops more than 0.1% below
 it. New register coverage without tests will trip this.
 
