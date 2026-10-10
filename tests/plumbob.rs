@@ -203,7 +203,7 @@ fn train(
     config: &TrainingConfig,
 ) -> (TrainingOutcome, Sink, Phy) {
     let mut trainer = FrlTrainer::new(Scdc::new(SinkTransport(RefCell::new(sink))), Phy::default());
-    let outcome = trainer.train(rates, config).unwrap();
+    let outcome = trainer.train(rates, config).unwrap().outcome;
     let (scdc, phy) = trainer.into_parts();
     (outcome, scdc.into_transport().0.into_inner(), phy)
 }
