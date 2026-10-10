@@ -3,19 +3,23 @@
 /// Errors returned by [`Scdc`](crate::Scdc) register operations.
 ///
 /// Two categories of failure are distinguished so that callers can handle them
-/// separately: a transport failure means the I²C/DDC bus returned an error; a
-/// protocol violation means the sink returned register content that does not
-/// conform to the SCDC specification.
+/// separately: a transport failure means the I²C/DDC bus returned an error; a protocol
+/// error means culvert refused the operation because it would break the SCDC protocol
+/// (for example FFE levels the rate prohibits), before anything was written.
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum ScdcError<E> {
     /// The underlying transport returned an error.
     Transport(E),
-    /// The sink returned register content that violates the SCDC protocol.
+    /// The operation would violate the SCDC protocol; nothing was written.
     Protocol(ProtocolError),
 }
 
-/// Protocol-level violations detected while decoding SCDC register content.
+/// What culvert refuses because it would violate the SCDC protocol.
+///
+/// Every value a sink can report decodes (an undefined link training request is
+/// [`LtpReq::Reserved`](crate::LtpReq::Reserved)), so these come from requests, not from
+/// register content.
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum ProtocolError {

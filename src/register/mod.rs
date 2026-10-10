@@ -226,7 +226,9 @@ pub struct LtpRequests {
     pub lane1: LtpReq,
     /// Lane 2 (`Status_Flags_2` bits 3:0).
     pub lane2: LtpReq,
-    /// Lane 3 (`Status_Flags_2` bits 7:4); `LtpReq::None` in 3-lane FRL.
+    /// Lane 3 (`Status_Flags_2` bits 7:4). Not in use in 3-lane FRL, where it holds
+    /// whatever the sink leaves there (not necessarily `LtpReq::None`); the link training
+    /// layer ignores it.
     pub lane3: LtpReq,
 }
 

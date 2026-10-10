@@ -265,8 +265,9 @@ multiple registers in a single logical operation:
 
 In both cases the method performs its reads back to back with no intervening writes or
 protocol state changes. Each register is a separate single-byte transaction, so a value
-the sink updates between two reads can be torn; reading the block in one transaction (and
-verifying the CED checksum) needs a multi-byte read in `hdmi-hal`'s `ScdcTransport`. This
+the sink updates between two reads can be torn; reading the block in one transaction
+through `ScdcTransport::read_block`, and verifying the CED checksum, is planned (see the
+roadmap). This
 is distinct from the multi-step sequences (write rate, poll for ready, handle pattern
 request) that belong in the link training crate.
 
@@ -421,7 +422,8 @@ Culvert surfaces two distinct failure categories:
 pub enum ScdcError<E> {
     /// The underlying I²C/DDC transport returned an error.
     Transport(E),
-    /// The register data violates the SCDC protocol (e.g. FFE levels the rate prohibits).
+    /// The operation would violate the SCDC protocol (e.g. FFE levels the rate
+    /// prohibits); nothing was written.
     Protocol(ProtocolError),
 }
 
@@ -434,7 +436,9 @@ pub enum ProtocolError {
 
 This mirrors the pattern established in piaf: transport failures and protocol violations
 are distinct. A caller that only cares about transport health can match on `Transport(_)`;
-one that wants to diagnose unexpected sink behaviour inspects `Protocol(_)`.
+`Protocol(_)` means culvert refused a request that would break the protocol. Every value a
+sink can report decodes — an undefined link training request is `LtpReq::Reserved` — so
+unexpected sink behaviour reaches the caller as data, not as an error.
 
 Both enums are `#[non_exhaustive]` at the type level, consistent with the rest of the
 stack. Tuple variants are plain — callers can match `UnknownFrlRate(value)` without `..`.
@@ -542,7 +546,7 @@ without the `plumbob` feature, for `thumbv7em-none-eabi`, a target without `std`
   here: pre-load a register array, run culvert operations against it, assert on results.
   No hardware required.
 - **Transport errors and protocol errors are distinct.** A caller should be able to tell
-  whether a failure came from the I²C bus or from unexpected register content.
+  whether a failure came from the I²C bus or from a request culvert refused.
 - **Stack-ordered delivery.** The 0.1.0 scope is the register coverage needed by the
   link training crate. Everything else the spec defines is on the roadmap.
 - **No unsafe code.** `#![forbid(unsafe_code)]`.
