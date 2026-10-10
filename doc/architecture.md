@@ -471,7 +471,9 @@ and plumbob's `UpdateFlags` and `FrlConfig` back for the writes. culvert's own t
 unchanged, so culvert means the same thing with or without the feature. Only the fields
 training uses cross the boundary: clearing flags through `ScdcClient` writes only
 `Source_Test_Update`, `FRL_start` and `FLT_update`, and culvert's richer `StatusFlags`,
-`UpdateFlags` and `SourceTestConfig` stay available through `Scdc<T>` directly.
+`UpdateFlags` and `SourceTestConfig` stay available through `Scdc<T>` directly. plumbob
+plans to mirror culvert's types field for field (its `doc/roadmap.md` has the plan);
+every field will then cross the boundary.
 `write_frl_config` keeps culvert's own FFE-levels check, which plumbob's per-rate limit
 already satisfies.
 
