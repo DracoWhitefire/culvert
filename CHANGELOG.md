@@ -77,6 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `ScdcTransport` re-exported at the crate root, from `hdmi-hal`: the bound on `Scdc<T>`.
 - **`culvert::codec`** — the register map without I/O: every register address culvert
   accesses (and the CED checksum), `CED_REGISTERS`, and one encode or decode function per
   register (`encode_tmds_config`, `decode_scrambler_status`, `decode_update_flags`,
