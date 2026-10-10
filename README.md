@@ -120,12 +120,12 @@ flowchart LR
     hal["hdmi-hal"]
     culvert["culvert"]
     plumbob["plumbob"]
-    integration["integration layer"]
+    integration["integration layer (planned)"]
 
     dt --> culvert
     hal --> culvert
     culvert -->|"implements ScdcClient"| plumbob
-    plumbob -->|"implements LinkTrainer"| integration
+    plumbob -.->|"will implement LinkTrainer"| integration
 ```
 
 `culvert` does not depend on `plumbob`. The relationship runs the other way: enabling the
