@@ -55,9 +55,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   through `From` impls in the feature-gated module; culvert's own types are unchanged.
   `Scdc` does not wait between polls: the poll interval plumbob's limits assume (2 ms by
   default) belongs in the transport.
-
-### Changed
-
 - **Minimum `hdmi-hal` version raised to 0.5**: `Scdc<T>` is bound by hdmi-hal 0.5's
   `ScdcTransport`, the version plumbob's training uses. It has the `read(&self)` receiver
   from hdmi-hal 0.4.0 (see above) and adds the `read_block` default method, so a
