@@ -118,11 +118,17 @@ impl From<plumbob::ClearableUpdateFlags> for ClearableUpdateFlags {
     }
 }
 
+/// Field for field: plumbob's `SourceTestConfig` mirrors culvert's.
 impl From<SourceTestConfig> for plumbob::SourceTestConfig {
     fn from(config: SourceTestConfig) -> Self {
-        Self {
-            flt_no_timeout: config.flt_no_timeout,
-        }
+        Self::new(
+            config.txffe_pre_shoot_only,
+            config.txffe_de_emphasis_only,
+            config.txffe_no_ffe,
+            config.flt_no_timeout,
+            config.dsc_frl_max,
+            config.frl_max,
+        )
     }
 }
 
@@ -160,7 +166,8 @@ mod tests {
     use crate::error::{ProtocolError, ScdcError};
     use display_types::HdmiForumFrl;
     use plumbob::{
-        ClearableUpdateFlags, FfeLevels, FrlConfig, LtpReq, LtpRequests, ScdcClient, UpdateFlags,
+        ClearableUpdateFlags, FfeLevels, FrlConfig, LtpReq, LtpRequests, ScdcClient,
+        SourceTestConfig, UpdateFlags,
     };
 
     fn scdc_with(regs: &[(u8, u8)]) -> Scdc<TestTransport> {
@@ -262,17 +269,19 @@ mod tests {
         assert_eq!(requests.lane2, LtpReq::None);
     }
 
-    // --- read_source_test_config: Source_Test_Configuration (0x35) bit 5
+    // --- read_source_test_config: Source_Test_Configuration (0x35), all six bits
 
     #[test]
-    fn read_source_test_config_maps_flt_no_timeout() {
-        let read = |byte| {
-            ScdcClient::read_source_test_config(&mut scdc_with(&[(0x35, byte)]))
-                .unwrap()
-                .flt_no_timeout
-        };
-        assert!(read(0x20));
-        assert!(!read(0xDF));
+    fn read_source_test_config_maps_every_bit() {
+        let read =
+            |byte| ScdcClient::read_source_test_config(&mut scdc_with(&[(0x35, byte)])).unwrap();
+        // Bits 1–3 and 5–7, in the order of the fields; bits 0 and 4 are reserved.
+        for (n, bit) in [1, 2, 3, 5, 6, 7].into_iter().enumerate() {
+            let b = |i| i == n;
+            let expected = SourceTestConfig::new(b(0), b(1), b(2), b(3), b(4), b(5));
+            assert_eq!(read(1 << bit), expected, "bit {bit}");
+        }
+        assert_eq!(read(0x11), SourceTestConfig::default());
     }
 
     // --- write_config_0_defaults: Config_0 (0x30) cleared

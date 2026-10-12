@@ -90,8 +90,9 @@ pub struct Config0 {
 ///
 /// Written by the sink, typically during compliance testing, to instruct the source.
 /// Read it when [`UpdateFlags::source_test_update`] is set. Bits 0 and 4 are reserved.
+/// The default has no bit set.
 #[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SourceTestConfig {
     /// Bit 1: use pre-shoot only for TxFFE.
     pub txffe_pre_shoot_only: bool,
@@ -109,7 +110,7 @@ pub struct SourceTestConfig {
 
 impl SourceTestConfig {
     /// Constructs `SourceTestConfig` from its flags, in bit order.
-    pub fn new(
+    pub const fn new(
         txffe_pre_shoot_only: bool,
         txffe_de_emphasis_only: bool,
         txffe_no_ffe: bool,

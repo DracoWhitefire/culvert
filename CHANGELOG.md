@@ -52,7 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `read_flt_ready` (`Status_Flags_0` bit 6), `read_update_flags` and `clear_update_flags`
   (all `Update_0` flags; plumbob's `UpdateFlags` and `ClearableUpdateFlags` mirror
   culvert's, converted field for field), `read_ltp_requests` (per lane),
-  `read_source_test_config` (`FLT_no_timeout`), `write_config_0_defaults`,
+  `read_source_test_config` (all six bits, which plumbob records in its trace),
+  `write_config_0_defaults`,
   `write_frl_config` (`Config_1`) and `read_ced`. culvert's types convert to plumbob's
   through `From` impls in the feature-gated module; culvert's own types are unchanged.
   `Scdc` does not wait between polls: the poll interval plumbob's limits assume (2 ms by
@@ -91,7 +92,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   register map.
 - `write_config_0` and `Config0` (`RR_Enable`, `FLT_No_Retrain`).
 - `read_source_test_config` and `SourceTestConfig` (`TxFFE_Pre_Shoot_Only`,
-  `TxFFE_De_Emphasis_Only`, `TxFFE_No_FFE`, `FLT_No_Timeout`, `DSC_FRL_Max`, `FRL_Max`).
+  `TxFFE_De_Emphasis_Only`, `TxFFE_No_FFE`, `FLT_No_Timeout`, `DSC_FRL_Max`, `FRL_Max`),
+  with a `const fn` constructor in bit order and a default with no bit set.
 - `read_ltp_requests`, `LtpRequests` and `LtpRequests::all_trained`.
 - `read_rs_correction` and `RsCorrectionCount` (Reed-Solomon correction count, 0x59/0x5A).
 - `FfeLevels::max_for` and `ProtocolError::FfeLevelsOutOfRange`.
