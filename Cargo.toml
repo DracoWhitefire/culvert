@@ -18,8 +18,8 @@ plumbob = ["dep:plumbob"]
 
 [dependencies]
 display-types = { version = "0.4", default-features = false }
-hdmi-hal = { path = "../hdmi-hal-frl", default-features = false }
-plumbob = { path = "../plumbob-frl", optional = true }
+hdmi-hal = { version = "0.5", default-features = false }
+plumbob = { path = "../plumbob-phase-c", optional = true }
 
 [dev-dependencies]
-hdmi-hal = { path = "../hdmi-hal-frl", default-features = false }
+hdmi-hal = { version = "0.5", default-features = false }
