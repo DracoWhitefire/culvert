@@ -80,12 +80,12 @@ impl From<LtpReq> for plumbob::LtpReq {
 
 impl From<LtpRequests> for plumbob::LtpRequests {
     fn from(requests: LtpRequests) -> Self {
-        Self {
-            lane0: requests.lane0.into(),
-            lane1: requests.lane1.into(),
-            lane2: requests.lane2.into(),
-            lane3: requests.lane3.into(),
-        }
+        Self::new(
+            requests.lane0.into(),
+            requests.lane1.into(),
+            requests.lane2.into(),
+            requests.lane3.into(),
+        )
     }
 }
 
@@ -150,12 +150,12 @@ impl From<CedCount> for plumbob::CedCount {
 
 impl From<CedCounters> for plumbob::CedCounters {
     fn from(counters: CedCounters) -> Self {
-        Self {
-            lane0: counters.lane0.map(Into::into),
-            lane1: counters.lane1.map(Into::into),
-            lane2: counters.lane2.map(Into::into),
-            lane3: counters.lane3.map(Into::into),
-        }
+        Self::new(
+            counters.lane0.map(Into::into),
+            counters.lane1.map(Into::into),
+            counters.lane2.map(Into::into),
+            counters.lane3.map(Into::into),
+        )
     }
 }
 
@@ -231,12 +231,7 @@ mod tests {
         let mut scdc = scdc_with(&[(0x41, 0x65), (0x42, 0x87)]);
         assert_eq!(
             ScdcClient::read_ltp_requests(&mut scdc).unwrap(),
-            LtpRequests {
-                lane0: LtpReq::Lfsr0,
-                lane1: LtpReq::Lfsr1,
-                lane2: LtpReq::Lfsr2,
-                lane3: LtpReq::Lfsr3,
-            }
+            LtpRequests::new(LtpReq::Lfsr0, LtpReq::Lfsr1, LtpReq::Lfsr2, LtpReq::Lfsr3)
         );
     }
 
@@ -300,10 +295,7 @@ mod tests {
         let mut scdc = Scdc::new(TestTransport::new());
         ScdcClient::write_frl_config(
             &mut scdc,
-            FrlConfig {
-                frl_rate: HdmiForumFrl::Rate12Gbps4Lanes,
-                ffe_levels: FfeLevels::new(3).unwrap(),
-            },
+            FrlConfig::new(HdmiForumFrl::Rate12Gbps4Lanes, FfeLevels::new(3).unwrap()),
         )
         .unwrap();
         assert_eq!(scdc.into_transport().get(0x31), 0x36);
@@ -314,10 +306,7 @@ mod tests {
         let mut scdc = scdc_with(&[(0x31, 0x36)]);
         ScdcClient::write_frl_config(
             &mut scdc,
-            FrlConfig {
-                frl_rate: HdmiForumFrl::NotSupported,
-                ffe_levels: FfeLevels::default(),
-            },
+            FrlConfig::new(HdmiForumFrl::NotSupported, FfeLevels::default()),
         )
         .unwrap();
         assert_eq!(scdc.into_transport().get(0x31), 0x00);
@@ -329,10 +318,7 @@ mod tests {
         let mut scdc = Scdc::new(TestTransport::new());
         let result = ScdcClient::write_frl_config(
             &mut scdc,
-            FrlConfig {
-                frl_rate: HdmiForumFrl::Rate6Gbps4Lanes,
-                ffe_levels: FfeLevels::MAX,
-            },
+            FrlConfig::new(HdmiForumFrl::Rate6Gbps4Lanes, FfeLevels::MAX),
         );
         assert!(matches!(
             result,
@@ -383,10 +369,7 @@ mod tests {
         assert!(
             ScdcClient::write_frl_config(
                 &mut fails(),
-                FrlConfig {
-                    frl_rate: HdmiForumFrl::Rate6Gbps4Lanes,
-                    ffe_levels: FfeLevels::default(),
-                }
+                FrlConfig::new(HdmiForumFrl::Rate6Gbps4Lanes, FfeLevels::default())
             )
             .is_err()
         );

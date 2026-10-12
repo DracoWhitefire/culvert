@@ -65,13 +65,24 @@ impl FfeLevels {
     }
 }
 
-/// Configuration written to `Config_1` (0x31).
+/// Configuration written to `Config_1` (0x31). Build one with [`new`](Self::new).
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FrlConfig {
     /// FRL rate to request. Use [`HdmiForumFrl::NotSupported`] to clear FRL mode.
     pub frl_rate: HdmiForumFrl,
     /// FFE levels to advertise to the sink.
     pub ffe_levels: FfeLevels,
+}
+
+impl FrlConfig {
+    /// Constructs `FrlConfig` from the rate and the FFE levels.
+    pub const fn new(frl_rate: HdmiForumFrl, ffe_levels: FfeLevels) -> Self {
+        Self {
+            frl_rate,
+            ffe_levels,
+        }
+    }
 }
 
 /// Content written to `Config_0` (0x30).
@@ -238,7 +249,7 @@ pub struct LtpRequests {
 
 impl LtpRequests {
     /// Constructs `LtpRequests` from the per-lane requests.
-    pub fn new(lane0: LtpReq, lane1: LtpReq, lane2: LtpReq, lane3: LtpReq) -> Self {
+    pub const fn new(lane0: LtpReq, lane1: LtpReq, lane2: LtpReq, lane3: LtpReq) -> Self {
         Self {
             lane0,
             lane1,
@@ -247,7 +258,9 @@ impl LtpRequests {
         }
     }
 
-    /// Returns `true` when no lane requests a pattern, i.e. link training passed.
+    /// Returns `true` when none of the four lanes requests a pattern. In 3-lane FRL lane 3
+    /// is not in use and may hold anything, so there only lanes 0–2 decide whether
+    /// training passed.
     pub fn all_trained(&self) -> bool {
         [self.lane0, self.lane1, self.lane2, self.lane3]
             .iter()
@@ -478,7 +491,7 @@ pub struct CedCounters {
 
 impl CedCounters {
     /// Constructs a `CedCounters`.
-    pub fn new(
+    pub const fn new(
         lane0: Option<CedCount>,
         lane1: Option<CedCount>,
         lane2: Option<CedCount>,

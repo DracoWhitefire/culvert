@@ -97,10 +97,10 @@ fn read_scrambler_status_inactive() {
 #[test]
 fn write_frl_config_encodes_bits() {
     let mut scdc = Scdc::new(SimulatedScdc::new());
-    scdc.write_frl_config(FrlConfig {
-        frl_rate: FrlRate::Rate10Gbps4Lanes, // discriminant 5 → bits[3:0]
-        ffe_levels: FfeLevels::new(3).unwrap(), // → bits[7:4]
-    })
+    scdc.write_frl_config(FrlConfig::new(
+        FrlRate::Rate10Gbps4Lanes,  // discriminant 5 → bits[3:0]
+        FfeLevels::new(3).unwrap(), // → bits[7:4]
+    ))
     .unwrap();
     let transport = scdc.into_transport();
     assert_eq!(transport.get(0x31), 0x35);
