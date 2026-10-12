@@ -306,9 +306,9 @@ impl StatusFlags {
 /// has handled with [`Scdc::clear_update_flags`](crate::Scdc::clear_update_flags)
 /// (write-1-to-clear), which takes a [`ClearableUpdateFlags`]: every flag but `RR_Test`.
 /// [`clearable`](Self::clearable) gives the flags just read in that form. `Update_1`
-/// (0x11) defines no fields and is not accessed.
+/// (0x11) defines no fields and is not accessed. The default has no flag set.
 #[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct UpdateFlags {
     /// Bit 0: general status has changed.
     pub status_update: bool,
@@ -329,7 +329,7 @@ pub struct UpdateFlags {
 
 impl UpdateFlags {
     /// Constructs `UpdateFlags` from the `Update_0` flags, in bit order.
-    pub fn new(
+    pub const fn new(
         status_update: bool,
         ced_update: bool,
         rr_test: bool,
@@ -351,7 +351,7 @@ impl UpdateFlags {
 
     /// These flags as a clear: every flag but `RR_Test`, which the source does not clear.
     /// `scdc.clear_update_flags(flags.clearable())` acknowledges every flag just read.
-    pub fn clearable(self) -> ClearableUpdateFlags {
+    pub const fn clearable(self) -> ClearableUpdateFlags {
         ClearableUpdateFlags {
             status_update: self.status_update,
             ced_update: self.ced_update,
@@ -396,7 +396,7 @@ pub struct ClearableUpdateFlags {
 
 impl ClearableUpdateFlags {
     /// Constructs `ClearableUpdateFlags` from the flags to clear, in bit order.
-    pub fn new(
+    pub const fn new(
         status_update: bool,
         ced_update: bool,
         source_test_update: bool,

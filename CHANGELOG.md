@@ -43,13 +43,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     flags just read into a clear of everything else, so a read-then-clear works on a sink
     that keeps `RR_Test` set. The rule comes from the Intel `xe` series alone, and
     Amlogic's driver clears the bit, so it is provisional; `doc/architecture.md` records
-    the evidence, the reasoning and what would change it.
+    the evidence, the reasoning and what would change it. `UpdateFlags` derives `Default`
+    (no flag set), and both constructors and `clearable()` are `const fn`.
 - **The `plumbob` feature implements plumbob's per-lane `ScdcClient`.** plumbob 0.1's
   interface (`read_training_status`, a single link training pattern request) could not
   work with the corrected register map. `Scdc<T>` now implements the one-method-per-register
   operation trait of plumbob's link training states (LTS:2 → LTS:3 → LTS:P):
   `read_flt_ready` (`Status_Flags_0` bit 6), `read_update_flags` and `clear_update_flags`
-  (the `Update_0` training flags), `read_ltp_requests` (per lane),
+  (all `Update_0` flags; plumbob's `UpdateFlags` and `ClearableUpdateFlags` mirror
+  culvert's, converted field for field), `read_ltp_requests` (per lane),
   `read_source_test_config` (`FLT_no_timeout`), `write_config_0_defaults`,
   `write_frl_config` (`Config_1`) and `read_ced`. culvert's types convert to plumbob's
   through `From` impls in the feature-gated module; culvert's own types are unchanged.

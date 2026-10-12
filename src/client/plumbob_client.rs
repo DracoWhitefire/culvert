@@ -31,7 +31,10 @@ impl<T: ScdcTransport> ScdcClient for Scdc<T> {
         Scdc::read_update_flags(self).map(Into::into)
     }
 
-    fn clear_update_flags(&mut self, flags: plumbob::UpdateFlags) -> Result<(), Self::Error> {
+    fn clear_update_flags(
+        &mut self,
+        flags: plumbob::ClearableUpdateFlags,
+    ) -> Result<(), Self::Error> {
         Scdc::clear_update_flags(self, flags.into())
     }
 
@@ -86,27 +89,31 @@ impl From<LtpRequests> for plumbob::LtpRequests {
     }
 }
 
-/// The `Update_0` flags plumbob uses; the others are not part of training.
+/// Field for field: plumbob's `UpdateFlags` mirrors culvert's.
 impl From<UpdateFlags> for plumbob::UpdateFlags {
     fn from(flags: UpdateFlags) -> Self {
-        Self {
-            source_test_update: flags.source_test_update,
-            frl_start: flags.frl_start,
-            flt_update: flags.flt_update,
-        }
-    }
-}
-
-/// The flags plumbob clears; every other `Update_0` flag is left as it is.
-impl From<plumbob::UpdateFlags> for ClearableUpdateFlags {
-    fn from(flags: plumbob::UpdateFlags) -> Self {
-        ClearableUpdateFlags::new(
-            false,
-            false,
+        Self::new(
+            flags.status_update,
+            flags.ced_update,
+            flags.rr_test,
             flags.source_test_update,
             flags.frl_start,
             flags.flt_update,
-            false,
+            flags.rsed_update,
+        )
+    }
+}
+
+/// Field for field: plumbob's `ClearableUpdateFlags` mirrors culvert's.
+impl From<plumbob::ClearableUpdateFlags> for ClearableUpdateFlags {
+    fn from(flags: plumbob::ClearableUpdateFlags) -> Self {
+        ClearableUpdateFlags::new(
+            flags.status_update,
+            flags.ced_update,
+            flags.source_test_update,
+            flags.frl_start,
+            flags.flt_update,
+            flags.rsed_update,
         )
     }
 }
@@ -152,7 +159,9 @@ mod tests {
     use super::super::test_transport::TestTransport;
     use crate::error::{ProtocolError, ScdcError};
     use display_types::HdmiForumFrl;
-    use plumbob::{FfeLevels, FrlConfig, LtpReq, LtpRequests, ScdcClient, UpdateFlags};
+    use plumbob::{
+        ClearableUpdateFlags, FfeLevels, FrlConfig, LtpReq, LtpRequests, ScdcClient, UpdateFlags,
+    };
 
     fn scdc_with(regs: &[(u8, u8)]) -> Scdc<TestTransport> {
         let mut t = TestTransport::new();
@@ -170,43 +179,42 @@ mod tests {
         assert!(!ScdcClient::read_flt_ready(&mut scdc_with(&[(0x40, 0xBF)])).unwrap());
     }
 
-    // --- read_update_flags: Update_0 (0x10) bits 3–5
+    // --- read_update_flags: Update_0 (0x10), all seven flags
 
     #[test]
-    fn read_update_flags_maps_the_training_flags() {
+    fn read_update_flags_maps_every_flag() {
         let read = |byte| ScdcClient::read_update_flags(&mut scdc_with(&[(0x10, byte)])).unwrap();
-        assert!(read(0x08).source_test_update);
-        assert!(read(0x10).frl_start);
-        assert!(read(0x20).flt_update);
-        // Bits plumbob does not use are not reported.
-        assert_eq!(read(0xC7), UpdateFlags::default());
+        let flag = |n: usize| {
+            let b = |i| i == n;
+            UpdateFlags::new(b(0), b(1), b(2), b(3), b(4), b(5), b(6))
+        };
+        for n in 0..7 {
+            assert_eq!(read(1 << n), flag(n), "bit {n}");
+        }
+        assert_eq!(
+            read(0x7F),
+            UpdateFlags::new(true, true, true, true, true, true, true)
+        );
+        // Bit 7 is reserved.
+        assert_eq!(read(0x80), UpdateFlags::default());
     }
 
     // --- clear_update_flags: write 1 to clear, only the given flags
 
     #[test]
-    fn clear_update_flags_writes_only_the_given_bits() {
+    fn clear_update_flags_writes_each_given_bit() {
         let clear = |flags| {
             let mut scdc = Scdc::new(TestTransport::new());
             ScdcClient::clear_update_flags(&mut scdc, flags).unwrap();
             scdc.into_transport().get(0x10)
         };
-        let flt_update = UpdateFlags {
-            flt_update: true,
-            ..UpdateFlags::default()
-        };
-        let frl_start = UpdateFlags {
-            frl_start: true,
-            ..UpdateFlags::default()
-        };
-        let source_test_update = UpdateFlags {
-            source_test_update: true,
-            ..UpdateFlags::default()
-        };
-        assert_eq!(clear(flt_update), 0x20);
-        assert_eq!(clear(frl_start), 0x10);
-        assert_eq!(clear(source_test_update), 0x08);
-        assert_eq!(clear(UpdateFlags::default()), 0x00);
+        // Bit order without RR_Test (bit 2), which has no field.
+        for (n, bit) in [0, 1, 3, 4, 5, 6].into_iter().enumerate() {
+            let b = |i| i == n;
+            let flags = ClearableUpdateFlags::new(b(0), b(1), b(2), b(3), b(4), b(5));
+            assert_eq!(clear(flags), 1 << bit, "bit {bit}");
+        }
+        assert_eq!(clear(ClearableUpdateFlags::default()), 0x00);
     }
 
     // --- read_ltp_requests: Status_Flags_1/2 (0x41/0x42), one nibble per lane
@@ -357,7 +365,9 @@ mod tests {
             Err(ScdcError::Transport(()))
         ));
         assert!(ScdcClient::read_update_flags(&mut fails()).is_err());
-        assert!(ScdcClient::clear_update_flags(&mut fails(), UpdateFlags::default()).is_err());
+        assert!(
+            ScdcClient::clear_update_flags(&mut fails(), ClearableUpdateFlags::default()).is_err()
+        );
         assert!(ScdcClient::read_ltp_requests(&mut fails()).is_err());
         assert!(ScdcClient::read_source_test_config(&mut fails()).is_err());
         assert!(ScdcClient::write_config_0_defaults(&mut fails()).is_err());
