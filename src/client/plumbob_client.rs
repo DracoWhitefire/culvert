@@ -122,7 +122,7 @@ impl From<SourceTestConfig> for plumbob::SourceTestConfig {
 impl From<plumbob::FrlConfig> for FrlConfig {
     fn from(config: plumbob::FrlConfig) -> Self {
         FrlConfig {
-            frl_rate: config.rate,
+            frl_rate: config.frl_rate,
             // plumbob's levels are 0–7, which culvert's `FfeLevels` always accepts.
             ffe_levels: FfeLevels::new(config.ffe_levels.value()).unwrap_or_default(),
         }
@@ -284,7 +284,7 @@ mod tests {
         ScdcClient::write_frl_config(
             &mut scdc,
             FrlConfig {
-                rate: HdmiForumFrl::Rate12Gbps4Lanes,
+                frl_rate: HdmiForumFrl::Rate12Gbps4Lanes,
                 ffe_levels: FfeLevels::new(3).unwrap(),
             },
         )
@@ -298,7 +298,7 @@ mod tests {
         ScdcClient::write_frl_config(
             &mut scdc,
             FrlConfig {
-                rate: HdmiForumFrl::NotSupported,
+                frl_rate: HdmiForumFrl::NotSupported,
                 ffe_levels: FfeLevels::default(),
             },
         )
@@ -313,7 +313,7 @@ mod tests {
         let result = ScdcClient::write_frl_config(
             &mut scdc,
             FrlConfig {
-                rate: HdmiForumFrl::Rate6Gbps4Lanes,
+                frl_rate: HdmiForumFrl::Rate6Gbps4Lanes,
                 ffe_levels: FfeLevels::MAX,
             },
         );
@@ -365,7 +365,7 @@ mod tests {
             ScdcClient::write_frl_config(
                 &mut fails(),
                 FrlConfig {
-                    rate: HdmiForumFrl::Rate6Gbps4Lanes,
+                    frl_rate: HdmiForumFrl::Rate6Gbps4Lanes,
                     ffe_levels: FfeLevels::default(),
                 }
             )
