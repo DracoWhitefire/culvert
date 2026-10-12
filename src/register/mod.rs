@@ -102,9 +102,11 @@ pub struct SourceTestConfig {
     pub txffe_no_ffe: bool,
     /// Bit 5: the source should not time out link training.
     pub flt_no_timeout: bool,
-    /// Bit 6: the source should use the maximum FRL rate with DSC.
+    /// Bit 6: the source should use the maximum FRL rate with DSC. The reference drivers
+    /// treat it together with `frl_max` as neither being set.
     pub dsc_frl_max: bool,
-    /// Bit 7: the source should use the maximum FRL rate.
+    /// Bit 7: the source should use the maximum FRL rate. The reference drivers treat it
+    /// together with `dsc_frl_max` as neither being set.
     pub frl_max: bool,
 }
 
