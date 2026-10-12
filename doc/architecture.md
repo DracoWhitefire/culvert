@@ -115,7 +115,7 @@ see [Sources](#sources) for how each was established.
   and lane 3 (bits 7:4).
 
   LTP request values: 0x0 = no pattern (lane trained), 0x1 = all ones, 0x2 = all zeros,
-  0x3 = Nyquist clock, 0x4 = Rx DDE compliance pattern, 0x5–0x8 = LFSR 0–3,
+  0x3 = Nyquist clock, 0x4 = DDE compliance pattern, 0x5–0x8 = LFSR 0–3,
   0xE = request FFE change, 0xF = request FRL rate change. Other values are undefined.
 
 **Character Error Detection** (0x50–0x5A)
@@ -341,7 +341,7 @@ pub enum LtpReq {
     AllOnes,           // 0x1
     AllZeros,          // 0x2
     NyquistClock,      // 0x3
-    RxDdeCompliance,   // 0x4
+    DdeCompliance,     // 0x4
     Lfsr0,             // 0x5
     Lfsr1,             // 0x6
     Lfsr2,             // 0x7

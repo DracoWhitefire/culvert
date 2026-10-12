@@ -63,7 +63,7 @@ impl From<LtpReq> for plumbob::LtpReq {
             LtpReq::AllOnes => Self::AllOnes,
             LtpReq::AllZeros => Self::AllZeros,
             LtpReq::NyquistClock => Self::NyquistClock,
-            LtpReq::RxDdeCompliance => Self::DdeCompliance,
+            LtpReq::DdeCompliance => Self::DdeCompliance,
             LtpReq::Lfsr0 => Self::Lfsr0,
             LtpReq::Lfsr1 => Self::Lfsr1,
             LtpReq::Lfsr2 => Self::Lfsr2,

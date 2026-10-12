@@ -145,9 +145,10 @@ pub enum LtpReq {
     AllZeros,
     /// 0x3: Nyquist clock pattern.
     NyquistClock,
-    /// 0x4: DDE compliance pattern (called RxDDE on the receiver side and TxDDE on the
-    /// transmitter side of the Xilinx drivers).
-    RxDdeCompliance,
+    /// 0x4: DDE (Data Dependent Equalization) compliance pattern. The Xilinx drivers name
+    /// it after their side (RxDDE in the receiver driver, TxDDE in the transmitter's);
+    /// the name here, like hdmi-hal's `LtpPattern::DdeCompliance`, is the pattern's.
+    DdeCompliance,
     /// 0x5: LFSR 0.
     Lfsr0,
     /// 0x6: LFSR 1.
@@ -178,7 +179,7 @@ impl LtpReq {
             0x1 => Self::AllOnes,
             0x2 => Self::AllZeros,
             0x3 => Self::NyquistClock,
-            0x4 => Self::RxDdeCompliance,
+            0x4 => Self::DdeCompliance,
             0x5 => Self::Lfsr0,
             0x6 => Self::Lfsr1,
             0x7 => Self::Lfsr2,
@@ -203,7 +204,7 @@ impl LtpReq {
             Self::AllOnes => 0x1,
             Self::AllZeros => 0x2,
             Self::NyquistClock => 0x3,
-            Self::RxDdeCompliance => 0x4,
+            Self::DdeCompliance => 0x4,
             Self::Lfsr0 => 0x5,
             Self::Lfsr1 => 0x6,
             Self::Lfsr2 => 0x7,

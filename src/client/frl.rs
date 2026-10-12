@@ -201,7 +201,7 @@ mod tests {
             (0x1, LtpReq::AllOnes),
             (0x2, LtpReq::AllZeros),
             (0x3, LtpReq::NyquistClock),
-            (0x4, LtpReq::RxDdeCompliance),
+            (0x4, LtpReq::DdeCompliance),
             (0x5, LtpReq::Lfsr0),
             (0x6, LtpReq::Lfsr1),
             (0x7, LtpReq::Lfsr2),
