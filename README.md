@@ -22,7 +22,7 @@ out of scope. Culvert provides the typed primitives; the caller decides when to 
 
 ```toml
 [dependencies]
-culvert = "0.1"
+culvert = "0.2"
 ```
 
 Wrap your transport in `Scdc` and call typed methods:
