@@ -19,7 +19,7 @@ plumbob = ["dep:plumbob"]
 [dependencies]
 display-types = { version = "0.4", default-features = false }
 hdmi-hal = { version = "0.5", default-features = false }
-plumbob = { path = "../plumbob-phase-c", optional = true }
+plumbob = { optional = true, version = "^0.3.0" }
 
 [dev-dependencies]
 hdmi-hal = { version = "0.5", default-features = false }
