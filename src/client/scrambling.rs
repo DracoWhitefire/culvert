@@ -1,7 +1,7 @@
 use hdmi_hal::scdc::ScdcTransport;
 
+use crate::codec;
 use crate::error::ScdcError;
-use crate::register::address;
 use crate::register::{ScramblerStatus, TmdsConfig};
 
 use super::Scdc;
@@ -11,9 +11,8 @@ impl<T: ScdcTransport> Scdc<T> {
     ///
     /// Sets `Scrambling_Enable` (bit 0) and `TMDS_Bit_Clock_Ratio` (bit 1).
     pub fn write_tmds_config(&mut self, config: TmdsConfig) -> Result<(), ScdcError<T::Error>> {
-        let byte = (config.scrambling_enable as u8) | ((config.high_tmds_clock_ratio as u8) << 1);
         self.transport
-            .write(address::TMDS_CONFIG, byte)
+            .write(codec::TMDS_CONFIG, codec::encode_tmds_config(config))
             .map_err(ScdcError::Transport)
     }
 
@@ -24,11 +23,9 @@ impl<T: ScdcTransport> Scdc<T> {
     pub fn read_scrambler_status(&mut self) -> Result<ScramblerStatus, ScdcError<T::Error>> {
         let byte = self
             .transport
-            .read(address::SCRAMBLER_STATUS)
+            .read(codec::SCRAMBLER_STATUS)
             .map_err(ScdcError::Transport)?;
-        Ok(ScramblerStatus {
-            scrambling_active: byte & 0x01 != 0,
-        })
+        Ok(codec::decode_scrambler_status(byte))
     }
 }
 

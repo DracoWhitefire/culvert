@@ -30,8 +30,8 @@ fuzz_target!(|data: &[u8]| {
     regs[0x42] = data[2]; // Status_Flags_2: LTP requests, lanes 2–3
 
     let mut scdc = Scdc::new(FuzzTransport(regs));
-    // Must not panic. read_status_flags has no error path; read_ltp_requests may return
-    // Err(ScdcError::Protocol(UnknownLtpReq(_))) for undefined values.
+    // Must not panic. Neither has a protocol error path: every byte decodes, undefined
+    // LTP request values as LtpReq::Reserved.
     let _ = scdc.read_status_flags();
     let _ = scdc.read_ltp_requests();
 });

@@ -8,6 +8,9 @@ mod scrambling;
 mod update;
 mod version;
 
+#[cfg(feature = "plumbob")]
+mod plumbob_client;
+
 #[cfg(test)]
 mod test_transport;
 

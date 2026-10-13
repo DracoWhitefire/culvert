@@ -21,7 +21,8 @@ cargo rustdoc --all-features -- -D missing_docs
 ## Running tests
 
 ```sh
-cargo test
+cargo test                      # default features
+cargo test --features plumbob   # with the plumbob::ScdcClient impl and end-to-end tests
 ```
 
 ## Measuring coverage

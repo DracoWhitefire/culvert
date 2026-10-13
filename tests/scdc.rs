@@ -6,8 +6,7 @@
 
 use core::convert::Infallible;
 use culvert::{
-    Config0, FfeLevels, FrlConfig, FrlRate, LtpReq, ProtocolError, Scdc, ScdcError, TmdsConfig,
-    UpdateFlags,
+    ClearableUpdateFlags, Config0, FfeLevels, FrlConfig, FrlRate, LtpReq, Scdc, TmdsConfig,
 };
 use hdmi_hal::scdc::ScdcTransport;
 
@@ -98,10 +97,10 @@ fn read_scrambler_status_inactive() {
 #[test]
 fn write_frl_config_encodes_bits() {
     let mut scdc = Scdc::new(SimulatedScdc::new());
-    scdc.write_frl_config(FrlConfig {
-        frl_rate: FrlRate::Rate10Gbps4Lanes, // discriminant 5 → bits[3:0]
-        ffe_levels: FfeLevels::new(3).unwrap(), // → bits[7:4]
-    })
+    scdc.write_frl_config(FrlConfig::new(
+        FrlRate::Rate10Gbps4Lanes,  // discriminant 5 → bits[3:0]
+        FfeLevels::new(3).unwrap(), // → bits[7:4]
+    ))
     .unwrap();
     let transport = scdc.into_transport();
     assert_eq!(transport.get(0x31), 0x35);
@@ -158,15 +157,15 @@ fn read_ltp_requests_decodes_lanes() {
 }
 
 #[test]
-fn read_ltp_requests_unknown_value() {
+fn read_ltp_requests_undefined_value() {
     let mut transport = SimulatedScdc::new();
     transport.set(0x42, 0xA0); // lane 3 = 0xA, undefined
     let mut scdc = Scdc::new(transport);
 
-    assert!(matches!(
-        scdc.read_ltp_requests(),
-        Err(ScdcError::Protocol(ProtocolError::UnknownLtpReq(0xA)))
-    ));
+    assert_eq!(
+        scdc.read_ltp_requests().unwrap().lane3,
+        LtpReq::Reserved(0xA)
+    );
 }
 
 #[test]
@@ -190,8 +189,8 @@ fn clear_update_flags_writes_w1c() {
     let mut scdc = Scdc::new(SimulatedScdc::new());
 
     // Clear only flt_update and frl_start.
-    scdc.clear_update_flags(UpdateFlags::new(
-        false, false, false, false, true, true, false,
+    scdc.clear_update_flags(ClearableUpdateFlags::new(
+        false, false, false, true, true, false,
     ))
     .unwrap();
 
