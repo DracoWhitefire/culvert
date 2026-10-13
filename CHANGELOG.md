@@ -99,8 +99,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `read_source_test_config` and `SourceTestConfig` (`TxFFE_Pre_Shoot_Only`,
   `TxFFE_De_Emphasis_Only`, `TxFFE_No_FFE`, `FLT_No_Timeout`, `DSC_FRL_Max`, `FRL_Max`),
   with a `const fn` constructor in bit order and a default with no bit set. The
-  `frl_max` and `dsc_frl_max` docs note that the reference drivers treat both set as
-  neither.
+  `frl_max` and `dsc_frl_max` docs say what the reference drivers do with both set
+  (Amlogic and NVIDIA act on neither, AMD trains at the maximum rate).
 - `read_ltp_requests`, `LtpRequests` and `LtpRequests::all_trained`.
 - `read_rs_correction` and `RsCorrectionCount` (Reed-Solomon correction count, 0x59/0x5A).
 - `FfeLevels::max_for` and `ProtocolError::FfeLevelsOutOfRange`.

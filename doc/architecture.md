@@ -486,7 +486,7 @@ Each `ScdcClient` method calls one culvert method:
 | `ScdcClient` method | culvert method | Register |
 |---|---|---|
 | `read_flt_ready` | `read_status_flags().flt_ready` | `Status_Flags_0` (0x40) bit 6 |
-| `read_update_flags` | `read_update_flags` | `Update_0` (0x10) bits 3–5 |
+| `read_update_flags` | `read_update_flags` | `Update_0` (0x10), all seven flags |
 | `clear_update_flags` | `clear_update_flags` | `Update_0` (0x10), write 1 to clear |
 | `read_ltp_requests` | `read_ltp_requests` | `Status_Flags_1/2` (0x41/0x42) |
 | `read_source_test_config` | `read_source_test_config` | `Source_Test_Configuration` (0x35) |
@@ -496,10 +496,11 @@ Each `ScdcClient` method calls one culvert method:
 
 `From` impls in the feature-gated module convert culvert's types to plumbob's owned types
 (`LtpReq`, `LtpRequests`, `UpdateFlags`, `SourceTestConfig`, `CedCount`, `CedCounters`)
-and plumbob's `UpdateFlags` and `FrlConfig` back for the writes. culvert's own types are
+and plumbob's `ClearableUpdateFlags` and `FrlConfig` back for the writes. culvert's own types are
 unchanged, so culvert means the same thing with or without the feature. plumbob's
 `ScdcClient` types mirror culvert's field for field (the same names, every field of each
-register, the same constructors), so every field crosses the boundary and the `From`
+register, the same constructors and `#[non_exhaustive]`; each crate adds methods of its
+own), so every field crosses the boundary and the `From`
 impls are field-for-field copies, tested bit by bit. plumbob clears only the flags it acts
 on (`Source_Test_Update`, `FRL_start`, `FLT_update`); culvert's `StatusFlags` has no
 plumbob counterpart and stays available through `Scdc<T>` directly.
