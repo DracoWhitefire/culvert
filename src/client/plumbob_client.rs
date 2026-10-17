@@ -1,259 +1,378 @@
 //! `plumbob::ScdcClient` implementation for [`Scdc`].
+//!
+//! Each trait method calls one culvert method; culvert's register types are converted to
+//! plumbob's at this boundary with the `From` impls below. culvert's own types are
+//! unchanged.
 
 use hdmi_hal::scdc::ScdcTransport;
 use plumbob::ScdcClient;
 
 use crate::error::ScdcError;
-use crate::register::{CedCount, FfeLevels, FrlConfig, LtpReq};
+use crate::register::{
+    CedCount, CedCounters, ClearableUpdateFlags, Config0, FfeLevels, FrlConfig, LtpReq,
+    LtpRequests, SourceTestConfig, UpdateFlags,
+};
 
 use super::Scdc;
 
+/// Typed SCDC access for plumbob's link training state machine.
+///
+/// `Scdc` does not wait between calls. plumbob polls `read_flt_ready` and
+/// `read_update_flags` in a loop whose limits assume one poll every 2 ms by default;
+/// enforce that interval in the transport (or a wrapper around it).
 impl<T: ScdcTransport> ScdcClient for Scdc<T> {
     type Error = ScdcError<T::Error>;
 
-    fn write_frl_config(&mut self, config: plumbob::FrlConfig) -> Result<(), Self::Error> {
-        self.write_frl_config(FrlConfig {
-            frl_rate: config.rate,
-            dsc_frl_max: config.dsc_frl_max,
-            ffe_levels: ffe_levels(config.ffe_levels),
-        })
+    fn read_flt_ready(&mut self) -> Result<bool, Self::Error> {
+        Ok(Scdc::read_status_flags(self)?.flt_ready)
     }
 
-    fn read_training_status(&mut self) -> Result<plumbob::TrainingStatus, Self::Error> {
-        let f = self.read_status_flags()?;
-        Ok(plumbob::TrainingStatus {
-            flt_ready: f.flt_ready,
-            frl_start: f.frl_start,
-            ltp_req: ltp_req(f.ltp_req),
-        })
+    fn read_update_flags(&mut self) -> Result<plumbob::UpdateFlags, Self::Error> {
+        Scdc::read_update_flags(self).map(Into::into)
+    }
+
+    fn clear_update_flags(
+        &mut self,
+        flags: plumbob::ClearableUpdateFlags,
+    ) -> Result<(), Self::Error> {
+        Scdc::clear_update_flags(self, flags.into())
+    }
+
+    fn read_ltp_requests(&mut self) -> Result<plumbob::LtpRequests, Self::Error> {
+        Scdc::read_ltp_requests(self).map(Into::into)
+    }
+
+    fn read_source_test_config(&mut self) -> Result<plumbob::SourceTestConfig, Self::Error> {
+        Scdc::read_source_test_config(self).map(Into::into)
+    }
+
+    fn write_config_0_defaults(&mut self) -> Result<(), Self::Error> {
+        Scdc::write_config_0(self, Config0::default())
+    }
+
+    fn write_frl_config(&mut self, config: plumbob::FrlConfig) -> Result<(), Self::Error> {
+        Scdc::write_frl_config(self, config.into())
     }
 
     fn read_ced(&mut self) -> Result<plumbob::CedCounters, Self::Error> {
-        let c = self.read_ced()?;
-        Ok(plumbob::CedCounters {
-            lane0: c.lane0.map(ced_count),
-            lane1: c.lane1.map(ced_count),
-            lane2: c.lane2.map(ced_count),
-            lane3: c.lane3.map(ced_count),
-        })
+        Scdc::read_ced(self).map(Into::into)
     }
 }
 
-fn ffe_levels(f: plumbob::FfeLevels) -> FfeLevels {
-    match f {
-        plumbob::FfeLevels::Ffe0 => FfeLevels::Ffe0,
-        plumbob::FfeLevels::Ffe1 => FfeLevels::Ffe1,
-        plumbob::FfeLevels::Ffe2 => FfeLevels::Ffe2,
-        plumbob::FfeLevels::Ffe3 => FfeLevels::Ffe3,
-        plumbob::FfeLevels::Ffe4 => FfeLevels::Ffe4,
-        plumbob::FfeLevels::Ffe5 => FfeLevels::Ffe5,
-        plumbob::FfeLevels::Ffe6 => FfeLevels::Ffe6,
-        plumbob::FfeLevels::Ffe7 => FfeLevels::Ffe7,
+impl From<LtpReq> for plumbob::LtpReq {
+    fn from(req: LtpReq) -> Self {
+        match req {
+            LtpReq::None => Self::None,
+            LtpReq::AllOnes => Self::AllOnes,
+            LtpReq::AllZeros => Self::AllZeros,
+            LtpReq::NyquistClock => Self::NyquistClock,
+            LtpReq::DdeCompliance => Self::DdeCompliance,
+            LtpReq::Lfsr0 => Self::Lfsr0,
+            LtpReq::Lfsr1 => Self::Lfsr1,
+            LtpReq::Lfsr2 => Self::Lfsr2,
+            LtpReq::Lfsr3 => Self::Lfsr3,
+            LtpReq::FfeChange => Self::FfeChange,
+            LtpReq::RateChange => Self::RateChange,
+            LtpReq::Reserved(value) => Self::Reserved(value),
+        }
     }
 }
 
-fn ltp_req(req: LtpReq) -> plumbob::LtpReq {
-    match req {
-        LtpReq::None => plumbob::LtpReq::None,
-        LtpReq::Lfsr0 => plumbob::LtpReq::Lfsr0,
-        LtpReq::Lfsr1 => plumbob::LtpReq::Lfsr1,
-        LtpReq::Lfsr2 => plumbob::LtpReq::Lfsr2,
-        LtpReq::Lfsr3 => plumbob::LtpReq::Lfsr3,
+impl From<LtpRequests> for plumbob::LtpRequests {
+    fn from(requests: LtpRequests) -> Self {
+        Self::new(
+            requests.lane0.into(),
+            requests.lane1.into(),
+            requests.lane2.into(),
+            requests.lane3.into(),
+        )
     }
 }
 
-fn ced_count(c: CedCount) -> plumbob::CedCount {
-    plumbob::CedCount::new(c.value())
+/// Field for field: plumbob's `UpdateFlags` mirrors culvert's.
+impl From<UpdateFlags> for plumbob::UpdateFlags {
+    fn from(flags: UpdateFlags) -> Self {
+        Self::new(
+            flags.status_update,
+            flags.ced_update,
+            flags.rr_test,
+            flags.source_test_update,
+            flags.frl_start,
+            flags.flt_update,
+            flags.rsed_update,
+        )
+    }
+}
+
+/// Field for field: plumbob's `ClearableUpdateFlags` mirrors culvert's.
+impl From<plumbob::ClearableUpdateFlags> for ClearableUpdateFlags {
+    fn from(flags: plumbob::ClearableUpdateFlags) -> Self {
+        ClearableUpdateFlags::new(
+            flags.status_update,
+            flags.ced_update,
+            flags.source_test_update,
+            flags.frl_start,
+            flags.flt_update,
+            flags.rsed_update,
+        )
+    }
+}
+
+/// Field for field: plumbob's `SourceTestConfig` mirrors culvert's.
+impl From<SourceTestConfig> for plumbob::SourceTestConfig {
+    fn from(config: SourceTestConfig) -> Self {
+        Self::new(
+            config.txffe_pre_shoot_only,
+            config.txffe_de_emphasis_only,
+            config.txffe_no_ffe,
+            config.flt_no_timeout,
+            config.dsc_frl_max,
+            config.frl_max,
+        )
+    }
+}
+
+impl From<plumbob::FrlConfig> for FrlConfig {
+    fn from(config: plumbob::FrlConfig) -> Self {
+        FrlConfig {
+            frl_rate: config.frl_rate,
+            // plumbob's levels are 0–7, which culvert's `FfeLevels` always accepts.
+            ffe_levels: FfeLevels::new(config.ffe_levels.value()).unwrap_or_default(),
+        }
+    }
+}
+
+impl From<CedCount> for plumbob::CedCount {
+    fn from(count: CedCount) -> Self {
+        Self::new(count.value())
+    }
+}
+
+impl From<CedCounters> for plumbob::CedCounters {
+    fn from(counters: CedCounters) -> Self {
+        Self::new(
+            counters.lane0.map(Into::into),
+            counters.lane1.map(Into::into),
+            counters.lane2.map(Into::into),
+            counters.lane3.map(Into::into),
+        )
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::Scdc;
     use super::super::test_transport::TestTransport;
+    use crate::error::{ProtocolError, ScdcError};
     use display_types::HdmiForumFrl;
-    use plumbob::{FfeLevels, FrlConfig, LtpReq, ScdcClient};
+    use plumbob::{
+        ClearableUpdateFlags, FfeLevels, FrlConfig, LtpReq, LtpRequests, ScdcClient,
+        SourceTestConfig, UpdateFlags,
+    };
 
-    // --- write_frl_config ---
-
-    #[test]
-    fn write_frl_config_rate_and_ffe() {
-        // Rate12Gbps4Lanes = discriminant 6; Ffe3 = 3 → bits[7:5] = 0b011 = 0x60
-        let mut scdc = Scdc::new(TestTransport::new());
-        ScdcClient::write_frl_config(
-            &mut scdc,
-            FrlConfig {
-                rate: HdmiForumFrl::Rate12Gbps4Lanes,
-                ffe_levels: FfeLevels::Ffe3,
-                dsc_frl_max: false,
-            },
-        )
-        .unwrap();
-        assert_eq!(scdc.into_transport().get(0x30), 0x06 | 0x60);
+    fn scdc_with(regs: &[(u8, u8)]) -> Scdc<TestTransport> {
+        let mut t = TestTransport::new();
+        for &(addr, value) in regs {
+            t.set(addr, value);
+        }
+        Scdc::new(t)
     }
 
-    #[test]
-    fn write_frl_config_dsc_frl_max() {
-        let mut scdc = Scdc::new(TestTransport::new());
-        ScdcClient::write_frl_config(
-            &mut scdc,
-            FrlConfig {
-                rate: HdmiForumFrl::NotSupported,
-                ffe_levels: FfeLevels::Ffe0,
-                dsc_frl_max: true,
-            },
-        )
-        .unwrap();
-        assert_eq!(scdc.into_transport().get(0x30), 0x10);
-    }
+    // --- read_flt_ready: Status_Flags_0 (0x40) bit 6
 
     #[test]
-    fn write_frl_config_all_ffe_levels() {
-        use FfeLevels::*;
-        for (ffe, expected_bits) in [
-            (Ffe0, 0x00u8),
-            (Ffe1, 0x20),
-            (Ffe2, 0x40),
-            (Ffe3, 0x60),
-            (Ffe4, 0x80),
-            (Ffe5, 0xA0),
-            (Ffe6, 0xC0),
-            (Ffe7, 0xE0),
-        ] {
+    fn read_flt_ready_reads_status_flags_0_bit_6() {
+        assert!(ScdcClient::read_flt_ready(&mut scdc_with(&[(0x40, 0x40)])).unwrap());
+        assert!(!ScdcClient::read_flt_ready(&mut scdc_with(&[(0x40, 0xBF)])).unwrap());
+    }
+
+    // --- read_update_flags: Update_0 (0x10), all seven flags
+
+    #[test]
+    fn read_update_flags_maps_every_flag() {
+        let read = |byte| ScdcClient::read_update_flags(&mut scdc_with(&[(0x10, byte)])).unwrap();
+        let flag = |n: usize| {
+            let b = |i| i == n;
+            UpdateFlags::new(b(0), b(1), b(2), b(3), b(4), b(5), b(6))
+        };
+        for n in 0..7 {
+            assert_eq!(read(1 << n), flag(n), "bit {n}");
+        }
+        assert_eq!(
+            read(0x7F),
+            UpdateFlags::new(true, true, true, true, true, true, true)
+        );
+        // Bit 7 is reserved.
+        assert_eq!(read(0x80), UpdateFlags::default());
+    }
+
+    // --- clear_update_flags: write 1 to clear, only the given flags
+
+    #[test]
+    fn clear_update_flags_writes_each_given_bit() {
+        let clear = |flags| {
             let mut scdc = Scdc::new(TestTransport::new());
-            ScdcClient::write_frl_config(
-                &mut scdc,
-                FrlConfig {
-                    rate: HdmiForumFrl::NotSupported,
-                    ffe_levels: ffe,
-                    dsc_frl_max: false,
-                },
-            )
-            .unwrap();
-            assert_eq!(
-                scdc.into_transport().get(0x30),
-                expected_bits,
-                "ffe={ffe:?}"
-            );
+            ScdcClient::clear_update_flags(&mut scdc, flags).unwrap();
+            scdc.into_transport().get(0x10)
+        };
+        // Bit order without RR_Test (bit 2), which has no field.
+        for (n, bit) in [0, 1, 3, 4, 5, 6].into_iter().enumerate() {
+            let b = |i| i == n;
+            let flags = ClearableUpdateFlags::new(b(0), b(1), b(2), b(3), b(4), b(5));
+            assert_eq!(clear(flags), 1 << bit, "bit {bit}");
         }
+        assert_eq!(clear(ClearableUpdateFlags::default()), 0x00);
     }
 
-    // --- read_training_status ---
+    // --- read_ltp_requests: Status_Flags_1/2 (0x41/0x42), one nibble per lane
 
     #[test]
-    fn read_training_status_flt_ready() {
-        let mut sim = TestTransport::new();
-        sim.set(0x40, 0x40); // flt_ready bit
-        let status = Scdc::new(sim).read_training_status().unwrap();
-        assert!(status.flt_ready);
-        assert!(!status.frl_start);
-        assert_eq!(status.ltp_req, LtpReq::None);
-    }
-
-    #[test]
-    fn read_training_status_frl_start() {
-        let mut sim = TestTransport::new();
-        sim.set(0x41, 0x01); // frl_start bit
-        let status = Scdc::new(sim).read_training_status().unwrap();
-        assert!(!status.flt_ready);
-        assert!(status.frl_start);
+    fn read_ltp_requests_maps_each_lane() {
+        let mut scdc = scdc_with(&[(0x41, 0x65), (0x42, 0x87)]);
+        assert_eq!(
+            ScdcClient::read_ltp_requests(&mut scdc).unwrap(),
+            LtpRequests::new(LtpReq::Lfsr0, LtpReq::Lfsr1, LtpReq::Lfsr2, LtpReq::Lfsr3)
+        );
     }
 
     #[test]
-    fn read_training_status_ltp_req_variants() {
-        for (nibble, expected) in [
-            (0u8, LtpReq::None),
-            (1, LtpReq::Lfsr0),
-            (2, LtpReq::Lfsr1),
-            (3, LtpReq::Lfsr2),
-            (4, LtpReq::Lfsr3),
-        ] {
-            let mut sim = TestTransport::new();
-            sim.set(0x41, nibble << 4);
-            assert_eq!(
-                Scdc::new(sim).read_training_status().unwrap().ltp_req,
-                expected,
-                "nibble={nibble}"
-            );
+    fn read_ltp_requests_maps_every_request_value() {
+        let cases = [
+            (0x0, LtpReq::None),
+            (0x1, LtpReq::AllOnes),
+            (0x2, LtpReq::AllZeros),
+            (0x3, LtpReq::NyquistClock),
+            (0x4, LtpReq::DdeCompliance),
+            (0x5, LtpReq::Lfsr0),
+            (0x6, LtpReq::Lfsr1),
+            (0x7, LtpReq::Lfsr2),
+            (0x8, LtpReq::Lfsr3),
+            (0xE, LtpReq::FfeChange),
+            (0xF, LtpReq::RateChange),
+        ];
+        for (nibble, expected) in cases {
+            let requests =
+                ScdcClient::read_ltp_requests(&mut scdc_with(&[(0x41, nibble)])).unwrap();
+            assert_eq!(requests.lane0, expected, "{nibble:#x}");
         }
     }
 
     #[test]
-    fn read_training_status_unknown_ltp_req_is_error() {
-        let mut sim = TestTransport::new();
-        sim.set(0x41, 5 << 4); // nibble 5 — undefined by spec
-        assert!(Scdc::new(sim).read_training_status().is_err());
+    fn read_ltp_requests_passes_undefined_values_on() {
+        let requests = ScdcClient::read_ltp_requests(&mut scdc_with(&[(0x42, 0x90)])).unwrap();
+        assert_eq!(requests.lane3, LtpReq::Reserved(0x9));
+        assert_eq!(requests.lane2, LtpReq::None);
     }
 
-    // --- read_ced ---
+    // --- read_source_test_config: Source_Test_Configuration (0x35), all six bits
 
     #[test]
-    fn read_ced_lane0_valid() {
-        let mut sim = TestTransport::new();
-        sim.set(0x50, 0x23); // low byte
-        sim.set(0x51, 0x81); // high byte: validity bit set, counter hi = 0x01
-        let ced = Scdc::new(sim).read_ced().unwrap();
-        assert_eq!(ced.lane0.map(|c| c.value()), Some(0x0123));
-    }
-
-    #[test]
-    fn read_ced_lane_invalid_when_validity_clear() {
-        let mut sim = TestTransport::new();
-        sim.set(0x50, 0xFF);
-        sim.set(0x51, 0x7F); // validity bit clear
-        let ced = Scdc::new(sim).read_ced().unwrap();
-        assert_eq!(ced.lane0, None);
-    }
-
-    #[test]
-    fn read_ced_all_lanes_propagate() {
-        let mut sim = TestTransport::new();
-        // Set validity + value for each lane
-        for (base, val) in [(0x50u8, 1u8), (0x52, 2), (0x54, 3), (0x56, 4)] {
-            sim.set(base, val);
-            sim.set(base + 1, 0x80);
+    fn read_source_test_config_maps_every_bit() {
+        let read =
+            |byte| ScdcClient::read_source_test_config(&mut scdc_with(&[(0x35, byte)])).unwrap();
+        // Bits 1–3 and 5–7, in the order of the fields; bits 0 and 4 are reserved.
+        for (n, bit) in [1, 2, 3, 5, 6, 7].into_iter().enumerate() {
+            let b = |i| i == n;
+            let expected = SourceTestConfig::new(b(0), b(1), b(2), b(3), b(4), b(5));
+            assert_eq!(read(1 << bit), expected, "bit {bit}");
         }
-        let ced = Scdc::new(sim).read_ced().unwrap();
-        assert_eq!(ced.lane0.map(|c| c.value()), Some(1));
-        assert_eq!(ced.lane1.map(|c| c.value()), Some(2));
-        assert_eq!(ced.lane2.map(|c| c.value()), Some(3));
-        assert_eq!(ced.lane3.map(|c| c.value()), Some(4));
+        assert_eq!(read(0x11), SourceTestConfig::default());
     }
 
-    // --- error propagation ---
+    // --- write_config_0_defaults: Config_0 (0x30) cleared
 
     #[test]
-    fn write_frl_config_transport_error() {
+    fn write_config_0_defaults_clears_config_0() {
+        let mut scdc = scdc_with(&[(0x30, 0xFF)]);
+        ScdcClient::write_config_0_defaults(&mut scdc).unwrap();
+        assert_eq!(scdc.into_transport().get(0x30), 0x00);
+    }
+
+    // --- write_frl_config: Config_1 (0x31), rate in bits 3:0, FFE levels in bits 7:4
+
+    #[test]
+    fn write_frl_config_encodes_rate_and_ffe_levels() {
+        let mut scdc = Scdc::new(TestTransport::new());
+        ScdcClient::write_frl_config(
+            &mut scdc,
+            FrlConfig::new(HdmiForumFrl::Rate12Gbps4Lanes, FfeLevels::new(3).unwrap()),
+        )
+        .unwrap();
+        assert_eq!(scdc.into_transport().get(0x31), 0x36);
+    }
+
+    #[test]
+    fn write_frl_config_turns_frl_off() {
+        let mut scdc = scdc_with(&[(0x31, 0x36)]);
+        ScdcClient::write_frl_config(
+            &mut scdc,
+            FrlConfig::new(HdmiForumFrl::NotSupported, FfeLevels::default()),
+        )
+        .unwrap();
+        assert_eq!(scdc.into_transport().get(0x31), 0x00);
+    }
+
+    #[test]
+    fn write_frl_config_keeps_culverts_rate_check() {
+        // plumbob limits levels per rate itself; culvert still rejects a level above it.
+        let mut scdc = Scdc::new(TestTransport::new());
+        let result = ScdcClient::write_frl_config(
+            &mut scdc,
+            FrlConfig::new(HdmiForumFrl::Rate6Gbps4Lanes, FfeLevels::MAX),
+        );
+        assert!(matches!(
+            result,
+            Err(ScdcError::Protocol(ProtocolError::FfeLevelsOutOfRange {
+                levels: 7,
+                ..
+            }))
+        ));
+    }
+
+    // --- read_ced: ERR_DET, validity bit 7 of each high byte
+
+    #[test]
+    fn read_ced_maps_each_lane() {
+        let mut scdc = scdc_with(&[
+            (0x50, 0x34),
+            (0x51, 0x92),
+            (0x52, 0x01),
+            (0x53, 0x00),
+            (0x54, 0xFF),
+            (0x55, 0xFF),
+            (0x57, 0x00),
+            (0x58, 0x80),
+        ]);
+        let ced = ScdcClient::read_ced(&mut scdc).unwrap();
+        assert_eq!(ced.lane0.map(|c| c.value()), Some(0x1234));
+        assert_eq!(ced.lane1, None);
+        assert_eq!(ced.lane2.map(|c| c.value()), Some(0x7FFF));
+        assert_eq!(ced.lane3.map(|c| c.value()), Some(0));
+    }
+
+    // --- transport errors
+
+    #[test]
+    fn transport_errors_are_returned() {
+        let fails = || Scdc::new(TestTransport::failing_after(0));
+        assert!(matches!(
+            ScdcClient::read_flt_ready(&mut fails()),
+            Err(ScdcError::Transport(()))
+        ));
+        assert!(ScdcClient::read_update_flags(&mut fails()).is_err());
+        assert!(
+            ScdcClient::clear_update_flags(&mut fails(), ClearableUpdateFlags::default()).is_err()
+        );
+        assert!(ScdcClient::read_ltp_requests(&mut fails()).is_err());
+        assert!(ScdcClient::read_source_test_config(&mut fails()).is_err());
+        assert!(ScdcClient::write_config_0_defaults(&mut fails()).is_err());
         assert!(
             ScdcClient::write_frl_config(
-                &mut Scdc::new(TestTransport::failing_after(0)),
-                FrlConfig {
-                    rate: HdmiForumFrl::NotSupported,
-                    ffe_levels: FfeLevels::Ffe0,
-                    dsc_frl_max: false,
-                }
+                &mut fails(),
+                FrlConfig::new(HdmiForumFrl::Rate6Gbps4Lanes, FfeLevels::default())
             )
             .is_err()
         );
-    }
-
-    #[test]
-    fn read_training_status_transport_error() {
-        assert!(
-            Scdc::new(TestTransport::failing_after(0))
-                .read_training_status()
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn read_ced_transport_error() {
-        for n in 0..8 {
-            assert!(
-                Scdc::new(TestTransport::failing_after(n))
-                    .read_ced()
-                    .is_err(),
-                "should fail when transport fails after {n} ops"
-            );
-        }
+        assert!(ScdcClient::read_ced(&mut fails()).is_err());
     }
 }

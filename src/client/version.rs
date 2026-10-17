@@ -1,7 +1,7 @@
 use hdmi_hal::scdc::ScdcTransport;
 
+use crate::codec;
 use crate::error::ScdcError;
-use crate::register::address;
 
 use super::Scdc;
 
@@ -9,14 +9,14 @@ impl<T: ScdcTransport> Scdc<T> {
     /// Reads the sink's SCDC protocol version from `Sink_Version` (0x01).
     pub fn read_sink_version(&mut self) -> Result<u8, ScdcError<T::Error>> {
         self.transport
-            .read(address::SINK_VERSION)
+            .read(codec::SINK_VERSION)
             .map_err(ScdcError::Transport)
     }
 
     /// Writes the source's SCDC protocol version to `Source_Version` (0x02).
     pub fn write_source_version(&mut self, version: u8) -> Result<(), ScdcError<T::Error>> {
         self.transport
-            .write(address::SOURCE_VERSION, version)
+            .write(codec::SOURCE_VERSION, version)
             .map_err(ScdcError::Transport)
     }
 }

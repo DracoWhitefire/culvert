@@ -5,6 +5,8 @@
 [![docs.rs](https://docs.rs/culvert/badge.svg)](https://docs.rs/culvert)
 [![License: MPL-2.0](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](LICENSE)
 [![Rust 1.85+](https://img.shields.io/badge/rustc-1.85+-orange.svg)](https://blog.rust-lang.org/2025/02/20/Rust-1.85.0.html)
+[![SLSA Level 2](https://slsa.dev/images/gh-badge-level2.svg)](https://slsa.dev)
+[![trusted publishing only](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fcrates.io%2Fapi%2Fv1%2Fcrates%2Fculvert&query=%24.crate.trustpub_only&label=trusted%20publishing%20only)](#verifying-releases)
 
 Typed access to the HDMI 2.1 SCDC register map.
 
@@ -21,13 +23,13 @@ out of scope. Culvert provides the typed primitives; the caller decides when to 
 
 ```toml
 [dependencies]
-culvert = "0.1"
+culvert = "0.2"
 ```
 
 Wrap your transport in `Scdc` and call typed methods:
 
 ```rust
-use culvert::{Scdc, TmdsConfig, FrlConfig, FrlRate, FfeLevels};
+use culvert::{Scdc, TmdsConfig, FrlConfig, FrlRate, FfeLevels, ClearableUpdateFlags};
 
 let mut scdc = Scdc::new(transport);
 
@@ -41,17 +43,23 @@ scdc.write_tmds_config(TmdsConfig {
     high_tmds_clock_ratio: true,
 })?;
 
-// Request an FRL rate
-scdc.write_frl_config(FrlConfig {
-    frl_rate: FrlRate::Rate12Gbps4Lanes,
-    ffe_levels: FfeLevels::Ffe3,
-    dsc_frl_max: false,
-})?;
-
-// Poll for training readiness
+// Wait for the sink to be ready, then request an FRL rate
 let flags = scdc.read_status_flags()?;
 if flags.flt_ready {
-    // sink is ready for the LTP loop
+    scdc.write_frl_config(FrlConfig::new(
+        FrlRate::Rate12Gbps4Lanes,
+        FfeLevels::new(3).unwrap(),
+    ))?;
+}
+
+// On FLT_Update, read the pattern each lane requests, then acknowledge the flag
+let updates = scdc.read_update_flags()?;
+if updates.flt_update {
+    let requests = scdc.read_ltp_requests()?;
+    scdc.clear_update_flags(ClearableUpdateFlags::new(false, false, false, false, true, false))?;
+    if requests.all_trained() {
+        // training passed; wait for FRL_Start in the update flags
+    }
 }
 
 // Read per-lane character error counts
@@ -70,21 +78,29 @@ culvert  = { version = "0.1", features = ["plumbob"] }
 plumbob  = "0.1"
 ```
 
-`Scdc<T>` then implements `plumbob::ScdcClient` automatically.
+`Scdc<T>` then implements `plumbob::ScdcClient`, one culvert method per training
+operation. `Scdc` does not wait between calls: plumbob polls `FLT_ready` and `Update_0`
+in loops whose limits assume one poll every 2 ms, so enforce that interval in the
+transport (or a wrapper around it).
 
 ## Register coverage
 
 | Register group            | Addresses   | Methods |
 |---------------------------|-------------|---------|
 | Version                   | 0x01–0x02   | `read_sink_version`, `write_source_version` |
-| Update flags              | 0x10–0x11   | `read_update_flags`, `clear_update_flags` |
+| Update flags              | 0x10        | `read_update_flags`, `clear_update_flags` |
 | TMDS / scrambling         | 0x20–0x21   | `write_tmds_config`, `read_scrambler_status` |
-| FRL config                | 0x30        | `write_frl_config` |
-| FRL status                | 0x40–0x41   | `read_status_flags` |
-| Character Error Detection | 0x50–0x57   | `read_ced` |
+| FRL config                | 0x30–0x31   | `write_config_0`, `write_frl_config` |
+| Source test configuration | 0x35        | `read_source_test_config` |
+| Status flags              | 0x40        | `read_status_flags` |
+| LTP requests              | 0x41–0x42   | `read_ltp_requests` |
+| Character Error Detection | 0x50–0x55, 0x57–0x58 | `read_ced` |
+| RS correction count       | 0x59–0x5A   | `read_rs_correction` |
 
-Registers not yet covered (RS Correction counters, DSC status, manufacturer
-identification) are documented in [`doc/roadmap.md`](doc/roadmap.md).
+The register map and its sources are described in
+[`doc/architecture.md`](doc/architecture.md#the-scdc-register-map). Registers not yet
+covered (the CED checksum, manufacturer identification) are
+documented in [`doc/roadmap.md`](doc/roadmap.md).
 
 ## Features
 
@@ -105,21 +121,23 @@ flowchart LR
     hal["hdmi-hal"]
     culvert["culvert"]
     plumbob["plumbob"]
-    integration["integration layer"]
+    integration["integration layer (planned)"]
 
     dt --> culvert
     hal --> culvert
     culvert -->|"implements ScdcClient"| plumbob
-    plumbob -->|"implements LinkTrainer"| integration
+    plumbob -.->|"will implement LinkTrainer"| integration
 ```
 
 `culvert` does not depend on `plumbob`. The relationship runs the other way: enabling the
-`plumbob` feature makes `Scdc<T>` implement `plumbob::ScdcClient`. Any crate that
+`plumbob` feature makes `Scdc<T>` implement `plumbob::ScdcClient`, and any crate that
 implements `ScdcClient` is substitutable.
 
 ## Out of scope
 
-- **Async API** — an async variant will live in a separate `culvert-async` crate.
+- **Async API** — the async client is the separate `culvert-async` crate. Both clients
+  use the I/O-free `culvert::codec` module (register addresses and per-register encoding
+  and decoding), so the register map exists once.
 - **Link training state machine** — the sequencing of FRL training (rate selection,
   polling, fallback to TMDS) belongs in the link training crate. Culvert provides the
   register operations; the state machine decides when to call them.
@@ -134,6 +152,35 @@ implements `ScdcClient` is substitutable.
 - [`doc/architecture.md`](doc/architecture.md) — role, scope, register map, type
   reference, design principles, and the culvert / link training boundary
 - [`doc/roadmap.md`](doc/roadmap.md) — SCDC registers deferred to future releases
+
+## Verifying releases
+
+Releases are built on GitHub Actions and attested with
+[SLSA Build Level 2](https://slsa.dev) provenance (from 0.2.0). To verify a release
+`.crate` against its signed provenance, install the
+[GitHub CLI](https://cli.github.com/) and run:
+
+```sh
+gh attestation verify culvert-X.Y.Z.crate --repo DracoWhitefire/culvert
+```
+
+The attested `.crate` is attached to each
+[GitHub release](https://github.com/DracoWhitefire/culvert/releases).
+
+Releases from 0.2.0 are uploaded through crates.io
+[trusted publishing](https://rust-lang.github.io/rfcs/3691-trusted-publishing-cratesio.html): the publish
+workflow obtains a short-lived token via OpenID Connect instead of using a stored
+API token. crates.io can also reject uploads made with an API token for this crate;
+the badge above shows whether that setting is on. Each version's publishing details,
+including the workflow run and commit, are available from the crates.io API:
+
+```sh
+curl -A "your-tool (contact)" https://crates.io/api/v1/crates/culvert/X.Y.Z
+# see .version.trustpub_data
+```
+
+Versions up to 0.1.2 were uploaded with an API token (0.1.0 by hand, 0.1.1 and 0.1.2
+from CI). They carry no provenance and have no GitHub release.
 
 ## License
 

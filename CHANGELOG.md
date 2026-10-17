@@ -7,6 +7,178 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-17
+
+### Breaking changes
+
+- **`ScdcTransport::read` now takes `&self` instead of `&mut self`** (inherited from
+  `hdmi-hal`). Any type you pass to `Scdc<T>` that implements `ScdcTransport` must
+  change its `read` method receiver from `&mut self` to `&self`. If the implementation
+  mutates state during reads (e.g. an operation counter), wrap those fields in `Cell`
+  or `Mutex`.
+- **SCDC register map corrected** (see *Fixed*); the typed API follows the corrected map:
+  - `write_frl_config` writes `Config_1` (0x31). `FrlConfig::dsc_frl_max` is removed
+    (`DSC_FRL_Max` is a sink-written flag, now read with `read_source_test_config`).
+    `FfeLevels` is the highest TxFFE level index (0–7, `FfeLevels::new`,
+    `FfeLevels::value`) instead of the `Ffe0`–`Ffe7` enum, and `write_frl_config`
+    returns `ProtocolError::FfeLevelsOutOfRange` when it exceeds the maximum for the
+    rate (3 up to 12 Gbps, 7 above).
+  - `StatusFlags` decodes `Status_Flags_0` only: `ch0_locked`–`ch2_locked` and
+    `ln3_locked` (bits 1–4) and `dsc_decode_fail` (bit 7). `cable_connected`,
+    `ch3_locked`, `frl_start` and `ltp_req` are removed; `StatusFlags::new` takes the
+    seven flags in bit order.
+  - Link training pattern requests are read per lane with `read_ltp_requests`.
+    `LtpReq` follows the spec values: LFSR 0–3 are 0x5–0x8, and `AllOnes`, `AllZeros`,
+    `NyquistClock`, `DdeCompliance`, `FfeChange` and `RateChange` are added. Every
+    value decodes: the undefined ones (0x9–0xD) are `LtpReq::Reserved(value)`, so a
+    stray value on one lane (such as the unused lane 3 at a 3-lane rate) no longer fails
+    the whole read; whether it matters is for the link training layer to decide.
+    `ProtocolError::UnknownLtpReq` is removed, and `codec::decode_ltp_requests` returns
+    `LtpRequests` rather than a `Result`. `LtpReq::value()` returns the 4-bit value.
+  - `UpdateFlags` decodes all `Update_0` flags (`rr_test`, `source_test_update`,
+    `frl_start`, `flt_update`, `rsed_update`); `frl_update` and `dsc_update` are
+    removed, `Update_1` is no longer accessed, and `UpdateFlags::new` takes the seven
+    flags in bit order. `clear_update_flags` takes the new `ClearableUpdateFlags` —
+    every flag but `rr_test` — instead of `UpdateFlags`, and `codec::encode_clear_update_flags`
+    is infallible: culvert treats Read Request Test as a flag the source must not clear,
+    and used to leave it out of the write silently. `UpdateFlags::clearable()` turns
+    flags just read into a clear of everything else, so a read-then-clear works on a sink
+    that keeps `RR_Test` set. The rule comes from the Intel `xe` series alone, and
+    Amlogic's driver clears the bit, so it is provisional; `doc/architecture.md` records
+    the evidence, the reasoning and what would change it. `UpdateFlags` derives `Default`
+    (no flag set), and both constructors and `clearable()` are `const fn`.
+- **The `plumbob` feature implements plumbob's per-lane `ScdcClient`.** plumbob 0.1's
+  interface (`read_training_status`, a single link training pattern request) could not
+  work with the corrected register map. `Scdc<T>` now implements the one-method-per-register
+  operation trait of plumbob's link training states (LTS:2 → LTS:3 → LTS:P):
+  `read_flt_ready` (`Status_Flags_0` bit 6), `read_update_flags` and `clear_update_flags`
+  (all `Update_0` flags; plumbob's `UpdateFlags` and `ClearableUpdateFlags` mirror
+  culvert's, converted field for field), `read_ltp_requests` (per lane),
+  `read_source_test_config` (all six bits, which plumbob records in its trace),
+  `write_config_0_defaults`,
+  `write_frl_config` (`Config_1`) and `read_ced`. culvert's types convert to plumbob's
+  through `From` impls in the feature-gated module; culvert's own types are unchanged.
+  `Scdc` does not wait between polls: the poll interval plumbob's limits assume (2 ms by
+  default) belongs in the transport.
+- **Minimum `hdmi-hal` version raised to 0.5**: `Scdc<T>` is bound by hdmi-hal 0.5's
+  `ScdcTransport`, the version plumbob's training uses. It has the `read(&self)` receiver
+  from hdmi-hal 0.4.0 (see above) and adds the `read_block` default method, so a
+  transport written for hdmi-hal 0.4 only needs its dependency raised.
+- **`display-types` updated to 0.4** — aligns with display-types 0.4 across the stack.
+  `FrlRate` (the re-exported `HdmiForumFrl`) is now display-types 0.4's type, the one
+  `hdmi-hal` and `plumbob` use.
+- **`FrlConfig` is `#[non_exhaustive]`**, built with `FrlConfig::new(frl_rate, ffe_levels)`,
+  as plumbob's mirror of it is; code outside culvert replaces `FrlConfig { .. }` with
+  `new`. `LtpRequests::new` and `CedCounters::new` become `const fn`, and
+  `LtpRequests::all_trained`'s documentation says that in 3-lane FRL only lanes 0–2 decide
+  whether training passed (lane 3 may hold anything).
+
+### Fixed
+
+- **Wrong SCDC register map** — the map culvert implemented did not match the HDMI 2.1
+  register layout. FRL rate and FFE levels were written to `Config_0` (0x30), whose bit 0
+  enables sink read requests; lane-lock bits were shifted by one; `FRL_Start` and the
+  link training pattern requests were read from the wrong registers, for one lane only,
+  with the wrong pattern values; and lane 3's CED counter was read from 0x56/0x57, where
+  0x56 is the CED checksum. The map was rebuilt from open-source HDMI 2.1
+  implementations (Xilinx, AMD, Amlogic, Realtek and two Linux DRM patch series), with
+  every field confirmed by at least two of them; see `doc/architecture.md`.
+
+### Added
+
+- **`LtpReq::from_value`** — the request for a raw 4-bit value (`None` above 0xF); every
+  value has exactly one request, `Reserved` only for 0x9–0xD. The decoder uses it.
+- `ScdcTransport` re-exported at the crate root, from `hdmi-hal`: the bound on `Scdc<T>`.
+- **`culvert::codec`** — the register map without I/O: every register address culvert
+  accesses (and the CED checksum), `CED_REGISTERS`, and one encode or decode function per
+  register (`encode_tmds_config`, `decode_scrambler_status`, `decode_update_flags`,
+  `encode_clear_update_flags`, `encode_config_0`, `encode_config_1`,
+  `decode_source_test_config`, `decode_status_flags`, `decode_ltp_requests`, `decode_ced`,
+  `decode_rs_correction`). `Scdc<T>` now only performs the reads and writes and uses these;
+  `culvert-async` uses the same functions, so the sync and async clients share one
+  register map.
+- `write_config_0` and `Config0` (`RR_Enable`, `FLT_No_Retrain`).
+- `read_source_test_config` and `SourceTestConfig` (`TxFFE_Pre_Shoot_Only`,
+  `TxFFE_De_Emphasis_Only`, `TxFFE_No_FFE`, `FLT_No_Timeout`, `DSC_FRL_Max`, `FRL_Max`),
+  with a `const fn` constructor in bit order and a default with no bit set. The
+  `frl_max` and `dsc_frl_max` docs say what the reference drivers do with both set
+  (Amlogic and NVIDIA act on neither, AMD trains at the maximum rate).
+- `read_ltp_requests`, `LtpRequests` and `LtpRequests::all_trained`.
+- `read_rs_correction` and `RsCorrectionCount` (Reed-Solomon correction count, 0x59/0x5A).
+- `FfeLevels::max_for` and `ProtocolError::FfeLevelsOutOfRange`.
+
+- **SLSA Build Level 2 provenance** — release artifacts are attested via
+  `actions/attest-build-provenance` and verified with
+  `gh attestation verify <file> --repo DracoWhitefire/culvert`.
+- **Fuzz targets** — `cargo-fuzz` harnesses for `read_status_flags`,
+  `read_ltp_requests` and `read_ced`; 60 s smoke runs on every PR/push, 1 h deep runs on a weekly
+  schedule, with automatic corpus minimisation and corpus-update PRs.
+
+### Internal
+
+- **CI builds for a `no_std` target** — new `Build (no_std)` steps build the crate for
+  `thumbv7em-none-eabi`, with and without the `plumbob` feature. Nothing checked a
+  target without `std` before, so a dependency that enables `std` (as hdmi-hal did
+  through `display-types`) went unnoticed.
+  The publish workflow runs the same build steps.
+- **Automated publish can be triggered by `release-tag`** — `publish.yml` gains a
+  `workflow_dispatch` trigger. Tags pushed with `GITHUB_TOKEN` do not start push-triggered
+  workflows, so `release-tag`'s "Trigger publish workflow" step
+  (`gh workflow run publish.yml`) could not start a publish run. Dispatches against a
+  non-tag ref (e.g. `main`) are skipped, so they cannot publish or create a release.
+- **Publishing uses crates.io trusted publishing** — `publish.yml` obtains a short-lived
+  token through OIDC (`rust-lang/crates-io-auth-action`, revoked at the end of the job, and
+  short-lived regardless) instead of the long-lived `CARGO_REGISTRY_TOKEN` secret. The
+  upload job runs in the `release` environment, which only `v*` tags can deploy to and
+  which requires a maintainer's approval. Quality gates moved to a separate `verify` job,
+  so no dependency build scripts run and no cache is restored where publishing credentials
+  exist. The attested `.crate` is kept as a separate copy; after upload the job fails if
+  crates.io's checksum differs from it, and that same copy is attached to the GitHub
+  release. Re-running a partially failed publish reuses an existing GitHub release.
+  `publish.yml` refuses tags that do not match the `Cargo.toml` version.
+- **Release summary before approval** — `publish.yml` gains a `summary` job that shows the
+  crate, version and commit, changes since the previous published release (ignoring
+  pre-release or malformed tags, and flagging a baseline that is not on crates.io), changes
+  to workflow, toolchain and build configuration, manifest changes, the changelog section,
+  and the `.crate` sha256 with a command to reproduce it, on the run page while the publish
+  job waits for approval. The publish job refuses to attest a package whose sha256 differs
+  from the reviewed one.
+- **`release-tag` no longer tags after a failed promotion** — `release-tag` now promotes
+  `develop` to `main` through a `release-promote/v*` branch and PR. A failed merge of the
+  promote PR used to go unnoticed, after which the previous `main` commit was tagged with
+  the new version. The step now fails, and tagging requires `main` to hold exactly the
+  promoted tree. It dispatches `publish.yml` with `actions: write` (it had only `read`),
+  and it also accepts a squash-merged release commit (`Release vX.Y.Z (#N)`).
+- **`release-tag` reports an unfinished fuzz run** — it still requires both CI and the fuzz
+  smoke run to have passed on `develop`'s head, but a fuzz run that has not finished yet
+  is now reported as such. It used to be reported as `not-found`, which is how the first
+  0.2.0 attempt failed: release-tag was started right after the release PR merged.
+- **Release workflows only run from `develop`** — `release-prep` and `release-tag` fail when
+  started from another branch, so an outdated copy of the workflow is not run against
+  `develop` by mistake.
+- **`release-prep` no longer edits the README** — its "Update README.md dependency pin"
+  step updated the `culvert` pin only, not the pins on other crates in the README and
+  docs; the pins are now updated by hand with the rest.
+- **`release-prep` leaves the fuzz dependencies alone** — refreshing `fuzz/Cargo.lock` ran
+  a plain `cargo update`, which also upgraded every fuzz dependency inside the release
+  commit. It now updates only `culvert`'s own entry; Dependabot proposes the rest.
+- **No CI or fuzz run on promotion PRs** — CI and the fuzz workflow no longer run on pull
+  requests into `main`. The only ones are `release-tag`'s `release-promote/*` PRs, whose
+  content already passed both on `develop`; opened by `github-actions[bot]`, their runs
+  would be held for approval and listed as `action_required` or failed.
+- **Supply-chain hardening for CI** — every third-party action is pinned to a commit SHA
+  of a release tag, with `dependabot.yml` keeping the pins (and both `Cargo.lock`s, the
+  crate's and the fuzz crate's) current. The Rust toolchains themselves still follow
+  `stable` and `nightly`. `cargo-semver-checks` is installed as a checksum-verified
+  prebuilt binary (the version listed by the pinned `install-action`) instead of being
+  restored from a cached `~/.cargo/bin`; `cargo-fuzz` is installed at a fixed version
+  instead of the latest. The security audit also runs weekly.
+- **README documents release provenance** — a badge shows whether crates.io requires trusted
+  publishing for this crate, and "Verifying releases" now states which versions carry SLSA
+  provenance (from 0.2.0, not every release as it previously claimed), which are uploaded
+  through trusted publishing (from 0.2.0) or were uploaded with an API token (up to 0.1.2),
+  and how to look up a version's publishing details on crates.io.
+
 ## [0.1.2] - 2026-04-05
 
 ### Changed
