@@ -554,8 +554,9 @@ fn update_0_flags_plumbob_does_not_handle_are_left_set() {
 }
 
 #[test]
-fn the_ffe_maximum_is_limited_per_rate_through_culvert() {
-    // FfeLevels::MAX is 7; up to 12 Gbps a sink allows 3.
+fn the_ffe_maximum_is_limited_per_rate() {
+    // FfeLevels::MAX is 7; up to 12 Gbps a sink allows 3. plumbob limits the levels before
+    // culvert encodes them (culvert would reject 7 at these rates).
     for (rate, config_1) in [(R12, 0x36u8), (HdmiForumFrl::Rate3Gbps3Lanes, 0x31)] {
         let mut sink = Sink::new();
         sink.flt_ready_after = Some(0);
