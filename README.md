@@ -21,9 +21,8 @@ out of scope. Culvert provides the typed primitives; the caller decides when to 
 
 ## Usage
 
-```toml
-[dependencies]
-culvert = "0.2"
+```sh
+cargo add culvert
 ```
 
 Wrap your transport in `Scdc` and call typed methods:
@@ -72,16 +71,16 @@ if let Some(count) = ced.lane0 {
 To use culvert as the SCDC backend for `plumbob`'s link training state machine, enable
 the `plumbob` feature:
 
-```toml
-[dependencies]
-culvert  = { version = "0.1", features = ["plumbob"] }
-plumbob  = "0.1"
+```sh
+cargo add culvert --features plumbob
+cargo add plumbob
 ```
 
 `Scdc<T>` then implements `plumbob::ScdcClient`, one culvert method per training
 operation. `Scdc` does not wait between calls: plumbob polls `FLT_ready` and `Update_0`
-in loops whose limits assume one poll every 2 ms, so enforce that interval in the
-transport (or a wrapper around it).
+in loops whose limits assume one poll every 2 ms, so wait that interval in the two polled
+methods, in an `ScdcClient` that wraps `Scdc<T>`, and put a deadline there too, not in
+the transport; [`doc/architecture.md`](doc/architecture.md) shows how.
 
 ## Register coverage
 

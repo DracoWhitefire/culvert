@@ -33,6 +33,7 @@ impl<T: ScdcTransport> Scdc<T> {
 mod tests {
     use super::super::Scdc;
     use super::super::test_transport::TestTransport;
+    use crate::error::ScdcError;
     use crate::register::{ScramblerStatus, TmdsConfig};
 
     #[test]
@@ -100,12 +101,12 @@ mod tests {
                     scrambling_enable: false,
                     high_tmds_clock_ratio: false
                 })
-                .is_err()
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
         assert!(
             Scdc::new(TestTransport::failing_after(0))
                 .read_scrambler_status()
-                .is_err()
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
     }
 }

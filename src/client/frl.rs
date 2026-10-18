@@ -69,7 +69,7 @@ impl<T: ScdcTransport> Scdc<T> {
 #[cfg(test)]
 mod tests {
     use super::super::Scdc;
-    use super::super::test_transport::TestTransport;
+    use super::super::test_transport::{Op, TestTransport};
     use crate::error::{ProtocolError, ScdcError};
     use crate::register::{Config0, FfeLevels, FrlConfig, LtpReq, SourceTestConfig, StatusFlags};
     use display_types::HdmiForumFrl;
@@ -96,27 +96,6 @@ mod tests {
         })
         .unwrap();
         assert_eq!(scdc.into_transport().get(0x31), 0x36);
-    }
-
-    #[test]
-    fn ffe_levels_range() {
-        assert_eq!(FfeLevels::new(7).map(FfeLevels::value), Some(7));
-        assert_eq!(FfeLevels::new(8), None);
-    }
-
-    #[test]
-    fn ffe_levels_max_for_rates_up_to_12g() {
-        for rate in [
-            HdmiForumFrl::NotSupported,
-            HdmiForumFrl::Rate3Gbps3Lanes,
-            HdmiForumFrl::Rate6Gbps3Lanes,
-            HdmiForumFrl::Rate6Gbps4Lanes,
-            HdmiForumFrl::Rate8Gbps4Lanes,
-            HdmiForumFrl::Rate10Gbps4Lanes,
-            HdmiForumFrl::Rate12Gbps4Lanes,
-        ] {
-            assert_eq!(FfeLevels::max_for(rate).value(), 3, "{rate:?}");
-        }
     }
 
     #[test]
@@ -299,6 +278,26 @@ mod tests {
     }
 
     #[test]
+    fn read_status_flags_reads_status_flags_0_once() {
+        let mut scdc = Scdc::new(TestTransport::new());
+        scdc.read_status_flags().unwrap();
+        assert_eq!(
+            scdc.into_transport().log()[..2],
+            [Some(Op::Read(0x40)), None]
+        );
+    }
+
+    #[test]
+    fn read_ltp_requests_reads_status_flags_1_then_2() {
+        let mut scdc = Scdc::new(TestTransport::new());
+        scdc.read_ltp_requests().unwrap();
+        assert_eq!(
+            scdc.into_transport().log()[..3],
+            [Some(Op::Read(0x41)), Some(Op::Read(0x42)), None]
+        );
+    }
+
+    #[test]
     fn transport_error_propagates() {
         assert!(
             Scdc::new(TestTransport::failing_after(0))
@@ -306,29 +305,29 @@ mod tests {
                     frl_rate: HdmiForumFrl::NotSupported,
                     ffe_levels: FfeLevels::default(),
                 })
-                .is_err()
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
         assert!(
             Scdc::new(TestTransport::failing_after(0))
                 .read_status_flags()
-                .is_err()
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
         assert!(
             Scdc::new(TestTransport::failing_after(0))
                 .write_config_0(Config0::default())
-                .is_err()
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
         assert!(
             Scdc::new(TestTransport::failing_after(0))
                 .read_source_test_config()
-                .is_err()
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
         // First (Status_Flags_1) and second (Status_Flags_2) read of the LTP requests.
         for n in 0..2 {
             assert!(
                 Scdc::new(TestTransport::failing_after(n))
                     .read_ltp_requests()
-                    .is_err()
+                    .is_err_and(|error| matches!(error, ScdcError::Transport(())))
             );
         }
     }

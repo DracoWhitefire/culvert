@@ -18,8 +18,12 @@ use super::Scdc;
 /// Typed SCDC access for plumbob's link training state machine.
 ///
 /// `Scdc` does not wait between calls. plumbob polls `read_flt_ready` and
-/// `read_update_flags` in a loop whose limits assume one poll every 2 ms by default;
-/// enforce that interval in the transport (or a wrapper around it).
+/// `read_update_flags` in a loop whose limits assume one poll every 2 ms by default; wait
+/// that interval inside those two methods, in an `ScdcClient` of your own that wraps
+/// `Scdc<T>` and forwards the other six (`doc/architecture.md` shows one). A deadline or
+/// cancel signal belongs there too, following plumbob's "Stopping early" rule. Not in the
+/// transport: there a wait applies to every register access, and a transport cannot tell
+/// the polled reads from LTS:L's.
 impl<T: ScdcTransport> ScdcClient for Scdc<T> {
     type Error = ScdcError<T::Error>;
 
@@ -359,20 +363,36 @@ mod tests {
             ScdcClient::read_flt_ready(&mut fails()),
             Err(ScdcError::Transport(()))
         ));
-        assert!(ScdcClient::read_update_flags(&mut fails()).is_err());
         assert!(
-            ScdcClient::clear_update_flags(&mut fails(), ClearableUpdateFlags::default()).is_err()
+            ScdcClient::read_update_flags(&mut fails())
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
-        assert!(ScdcClient::read_ltp_requests(&mut fails()).is_err());
-        assert!(ScdcClient::read_source_test_config(&mut fails()).is_err());
-        assert!(ScdcClient::write_config_0_defaults(&mut fails()).is_err());
+        assert!(
+            ScdcClient::clear_update_flags(&mut fails(), ClearableUpdateFlags::default())
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
+        );
+        assert!(
+            ScdcClient::read_ltp_requests(&mut fails())
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
+        );
+        assert!(
+            ScdcClient::read_source_test_config(&mut fails())
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
+        );
+        assert!(
+            ScdcClient::write_config_0_defaults(&mut fails())
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
+        );
         assert!(
             ScdcClient::write_frl_config(
                 &mut fails(),
                 FrlConfig::new(HdmiForumFrl::Rate6Gbps4Lanes, FfeLevels::default())
             )
-            .is_err()
+            .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
-        assert!(ScdcClient::read_ced(&mut fails()).is_err());
+        assert!(
+            ScdcClient::read_ced(&mut fails())
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
+        );
     }
 }

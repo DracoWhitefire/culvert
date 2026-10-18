@@ -520,6 +520,27 @@ mod tests {
     }
 
     #[test]
+    fn ffe_levels_range() {
+        assert_eq!(FfeLevels::new(7).map(FfeLevels::value), Some(7));
+        assert_eq!(FfeLevels::new(8), None);
+    }
+
+    #[test]
+    fn ffe_levels_max_for_rates_up_to_12g() {
+        for rate in [
+            HdmiForumFrl::NotSupported,
+            HdmiForumFrl::Rate3Gbps3Lanes,
+            HdmiForumFrl::Rate6Gbps3Lanes,
+            HdmiForumFrl::Rate6Gbps4Lanes,
+            HdmiForumFrl::Rate8Gbps4Lanes,
+            HdmiForumFrl::Rate10Gbps4Lanes,
+            HdmiForumFrl::Rate12Gbps4Lanes,
+        ] {
+            assert_eq!(FfeLevels::max_for(rate).value(), 3, "{rate:?}");
+        }
+    }
+
+    #[test]
     fn ced_count_preserves_15_bit_value() {
         assert_eq!(CedCount::new(0x0000).value(), 0x0000);
         assert_eq!(CedCount::new(0x0001).value(), 0x0001);

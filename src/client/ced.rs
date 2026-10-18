@@ -28,6 +28,9 @@ impl<T: ScdcTransport> Scdc<T> {
     ///
     /// Returns `None` if the high byte's validity bit (bit 7) is not set. The count is
     /// maintained by the sink in FRL mode; `UpdateFlags::rsed_update` signals a change.
+    ///
+    /// The two bytes are separate reads, so a count the sink updates between them can be
+    /// torn. Treat it as a diagnostic.
     pub fn read_rs_correction(&mut self) -> Result<Option<RsCorrectionCount>, ScdcError<T::Error>> {
         let low = self
             .transport
@@ -44,7 +47,8 @@ impl<T: ScdcTransport> Scdc<T> {
 #[cfg(test)]
 mod tests {
     use super::super::Scdc;
-    use super::super::test_transport::TestTransport;
+    use super::super::test_transport::{Op, TestTransport};
+    use crate::error::ScdcError;
     use crate::register::CedCount;
 
     #[test]
@@ -79,12 +83,51 @@ mod tests {
     }
 
     #[test]
+    fn read_ced_reads_each_counter_register_once_in_order() {
+        let mut scdc = Scdc::new(TestTransport::new());
+        scdc.read_ced().unwrap();
+        // 0x56, the CED checksum, is not read.
+        let reads = [0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x57, 0x58].map(|r| Some(Op::Read(r)));
+        let log = scdc.into_transport().log();
+        assert_eq!(log[..8], reads);
+        assert_eq!(log[8], None);
+    }
+
+    #[test]
+    fn read_rs_correction_reads_low_then_high() {
+        let mut scdc = Scdc::new(TestTransport::new());
+        scdc.read_rs_correction().unwrap();
+        assert_eq!(
+            scdc.into_transport().log()[..3],
+            [Some(Op::Read(0x59)), Some(Op::Read(0x5A)), None]
+        );
+    }
+
+    #[test]
+    fn ced_each_lane_from_its_own_registers() {
+        // A distinct, asymmetric low/high pair per lane, so a swapped byte or lane shows.
+        let mut sim = TestTransport::new();
+        for (low, value) in [(0x50, 0x02), (0x52, 0x04), (0x54, 0x06)] {
+            sim.set(low, value);
+            sim.set(low + 1, 0x80 | (value + 1));
+        }
+        sim.set(0x56, 0xFF); // CED checksum, read as no lane
+        sim.set(0x57, 0x08);
+        sim.set(0x58, 0x89);
+        let ced = Scdc::new(sim).read_ced().unwrap();
+        assert_eq!(ced.lane0.map(|c| c.value()), Some(0x0302));
+        assert_eq!(ced.lane1.map(|c| c.value()), Some(0x0504));
+        assert_eq!(ced.lane2.map(|c| c.value()), Some(0x0706));
+        assert_eq!(ced.lane3.map(|c| c.value()), Some(0x0908));
+    }
+
+    #[test]
     fn transport_error_on_any_read() {
         for n in 0..8 {
             assert!(
                 Scdc::new(TestTransport::failing_after(n))
                     .read_ced()
-                    .is_err()
+                    .is_err_and(|error| matches!(error, ScdcError::Transport(())))
             );
         }
     }
@@ -114,7 +157,7 @@ mod tests {
             assert!(
                 Scdc::new(TestTransport::failing_after(n))
                     .read_rs_correction()
-                    .is_err()
+                    .is_err_and(|error| matches!(error, ScdcError::Transport(())))
             );
         }
     }

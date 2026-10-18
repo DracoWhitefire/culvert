@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The poll interval and a deadline belong in the polled methods, not the transport.**
+  The `plumbob` adapter's documentation, the README and `doc/architecture.md` used to say
+  to enforce plumbob's 2 ms poll interval in the transport. plumbob's `ScdcClient`
+  contract puts it inside the two polled methods, `read_flt_ready` and
+  `read_update_flags`: a wait in the transport applies to every register access, and a
+  deadline there cannot tell the polled reads from LTS:L's, so it can fail LTS:L and leave
+  the sink in FRL. `doc/architecture.md` now shows an `ScdcClient` that wraps `Scdc<T>`,
+  waits in those two methods and forwards the rest, and maps plumbob's "Stopping early"
+  rule onto it.
+- `read_rs_correction`'s documentation says the count can tear (two separate reads), as
+  `read_ced`'s does.
+- The README and `doc/architecture.md` use `cargo add` instead of the stale `"0.1"`
+  version pins.
+
+### Internal
+
+- **The client tests check more of what they claim**, mirroring culvert-async's:
+  transport errors are matched as `ScdcError::Transport`, not only as an error; a CED
+  test gives every lane a distinct, asymmetric count, so a swapped byte or lane shows; the
+  version tests use 0xA5 and 0x5A rather than 0x01; and `TestTransport` records the
+  operations, so tests pin the registers `read_status_flags`, `read_ltp_requests`,
+  `read_ced`, `read_rs_correction` and `clear_update_flags` touch, in order and count.
+- The `FfeLevels` tests moved from the client module to the register module, where the
+  type is, and the end-to-end FFE test is named for what it checks (plumbob limits the
+  levels; culvert encodes them).
+
 ## [0.2.0] - 2026-10-17
 
 ### Breaking changes
