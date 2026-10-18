@@ -507,8 +507,45 @@ plumbob counterpart and stays available through `Scdc<T>` directly.
 `write_frl_config` keeps culvert's own FFE-levels check, which plumbob's per-rate limit
 already satisfies.
 
-`Scdc` holds no state and does not wait between calls. plumbob's poll limits assume one
-poll every 2 ms by default; the transport (or a wrapper around it) enforces that interval.
+**Polling and stopping early.** `Scdc` holds no state and does not wait between calls.
+plumbob's limits assume one poll every 2 ms by default, and plumbob's contract puts the
+wait inside the two polled methods, `read_flt_ready` and `read_update_flags`. With
+`Scdc<T>` that means an `ScdcClient` of your own that wraps it, waits in those two
+methods and forwards the rest:
+
+```rust
+use culvert::{Scdc, ScdcError, ScdcTransport};
+use plumbob::{ScdcClient, UpdateFlags};
+use std::time::Duration;
+
+/// `Scdc<T>` that waits the poll interval in the two methods plumbob polls.
+struct Paced<T>(Scdc<T>);
+
+impl<T: ScdcTransport> ScdcClient for Paced<T> {
+    type Error = ScdcError<T::Error>;
+
+    fn read_flt_ready(&mut self) -> Result<bool, Self::Error> {
+        std::thread::sleep(Duration::from_millis(2)); // or the platform's timer
+        ScdcClient::read_flt_ready(&mut self.0)
+    }
+
+    fn read_update_flags(&mut self) -> Result<UpdateFlags, Self::Error> {
+        std::thread::sleep(Duration::from_millis(2));
+        ScdcClient::read_update_flags(&mut self.0)
+    }
+
+    // … the other six methods forward without waiting
+}
+```
+
+A wall-clock deadline or a cancel signal goes in the same two methods, following
+plumbob's "Stopping early" rule (`plumbob::ScdcClient`): return one error of your own
+(the wrapper's `Error` then wraps `ScdcError`), let every later call through, and never
+fail a read made after a `write_frl_config` with `NotSupported` until a `write_frl_config`
+with an FRL rate starts training again. Neither belongs in the transport: a wait there
+applies to every register access, not only the polls, and a transport cannot tell the
+polled reads from LTS:L's, so a deadline there can fail LTS:L itself and leave the sink in
+FRL.
 
 ---
 

@@ -80,8 +80,9 @@ plumbob  = "0.1"
 
 `Scdc<T>` then implements `plumbob::ScdcClient`, one culvert method per training
 operation. `Scdc` does not wait between calls: plumbob polls `FLT_ready` and `Update_0`
-in loops whose limits assume one poll every 2 ms, so enforce that interval in the
-transport (or a wrapper around it).
+in loops whose limits assume one poll every 2 ms, so wait that interval in the two polled
+methods, in an `ScdcClient` that wraps `Scdc<T>`, and put a deadline there too, not in
+the transport; [`doc/architecture.md`](doc/architecture.md) shows how.
 
 ## Register coverage
 
