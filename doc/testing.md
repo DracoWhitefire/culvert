@@ -19,6 +19,8 @@ Each client module contains tests immediately below the code it covers. They use
 - `TestTransport::new()` — succeeds on all operations; used for happy-path tests.
 - `TestTransport::failing_after(n)` — succeeds for the first `n` operations then returns
   `Err(())`; used to exercise every `?` error branch.
+- `TestTransport::log()` — the first 16 operations, in order, so a test can pin which
+  registers a method reads and writes, in what order and how often.
 
 The single generic instantiation (`Scdc<TestTransport>`) is intentional: using one
 concrete type avoids LLVM counting per-monomorphisation `?` branches as uncovered, which
