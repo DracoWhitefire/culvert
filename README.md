@@ -21,9 +21,8 @@ out of scope. Culvert provides the typed primitives; the caller decides when to 
 
 ## Usage
 
-```toml
-[dependencies]
-culvert = "0.2"
+```sh
+cargo add culvert
 ```
 
 Wrap your transport in `Scdc` and call typed methods:
@@ -72,10 +71,9 @@ if let Some(count) = ced.lane0 {
 To use culvert as the SCDC backend for `plumbob`'s link training state machine, enable
 the `plumbob` feature:
 
-```toml
-[dependencies]
-culvert  = { version = "0.1", features = ["plumbob"] }
-plumbob  = "0.1"
+```sh
+cargo add culvert --features plumbob
+cargo add plumbob
 ```
 
 `Scdc<T>` then implements `plumbob::ScdcClient`, one culvert method per training

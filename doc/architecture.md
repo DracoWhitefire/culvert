@@ -475,10 +475,10 @@ This follows the same convention as `serde` feature flags in the ecosystem: the 
 crate reaches toward the consuming crate's trait, rather than the consumer depending on
 the producer.
 
-```toml
-# Cargo.toml of a crate using both
-culvert  = { version = "0.1", features = ["plumbob"] }
-plumbob  = "0.1"
+```sh
+# a crate using both
+cargo add culvert --features plumbob
+cargo add plumbob
 ```
 
 Each `ScdcClient` method calls one culvert method:
