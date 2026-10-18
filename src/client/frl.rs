@@ -306,29 +306,29 @@ mod tests {
                     frl_rate: HdmiForumFrl::NotSupported,
                     ffe_levels: FfeLevels::default(),
                 })
-                .is_err()
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
         assert!(
             Scdc::new(TestTransport::failing_after(0))
                 .read_status_flags()
-                .is_err()
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
         assert!(
             Scdc::new(TestTransport::failing_after(0))
                 .write_config_0(Config0::default())
-                .is_err()
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
         assert!(
             Scdc::new(TestTransport::failing_after(0))
                 .read_source_test_config()
-                .is_err()
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
         // First (Status_Flags_1) and second (Status_Flags_2) read of the LTP requests.
         for n in 0..2 {
             assert!(
                 Scdc::new(TestTransport::failing_after(n))
                     .read_ltp_requests()
-                    .is_err()
+                    .is_err_and(|error| matches!(error, ScdcError::Transport(())))
             );
         }
     }

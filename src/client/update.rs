@@ -37,6 +37,7 @@ impl<T: ScdcTransport> Scdc<T> {
 mod tests {
     use super::super::Scdc;
     use super::super::test_transport::TestTransport;
+    use crate::error::ScdcError;
     use crate::register::{ClearableUpdateFlags, UpdateFlags};
 
     fn read(byte: u8) -> UpdateFlags {
@@ -111,12 +112,12 @@ mod tests {
         assert!(
             Scdc::new(TestTransport::failing_after(0))
                 .read_update_flags()
-                .is_err()
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
         assert!(
             Scdc::new(TestTransport::failing_after(0))
                 .clear_update_flags(ClearableUpdateFlags::default())
-                .is_err()
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
     }
 }

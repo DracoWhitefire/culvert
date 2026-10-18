@@ -48,6 +48,7 @@ impl<T: ScdcTransport> Scdc<T> {
 mod tests {
     use super::super::Scdc;
     use super::super::test_transport::TestTransport;
+    use crate::error::ScdcError;
     use crate::register::CedCount;
 
     #[test]
@@ -87,7 +88,7 @@ mod tests {
             assert!(
                 Scdc::new(TestTransport::failing_after(n))
                     .read_ced()
-                    .is_err()
+                    .is_err_and(|error| matches!(error, ScdcError::Transport(())))
             );
         }
     }
@@ -117,7 +118,7 @@ mod tests {
             assert!(
                 Scdc::new(TestTransport::failing_after(n))
                     .read_rs_correction()
-                    .is_err()
+                    .is_err_and(|error| matches!(error, ScdcError::Transport(())))
             );
         }
     }

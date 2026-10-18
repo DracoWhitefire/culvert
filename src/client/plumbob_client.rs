@@ -363,20 +363,36 @@ mod tests {
             ScdcClient::read_flt_ready(&mut fails()),
             Err(ScdcError::Transport(()))
         ));
-        assert!(ScdcClient::read_update_flags(&mut fails()).is_err());
         assert!(
-            ScdcClient::clear_update_flags(&mut fails(), ClearableUpdateFlags::default()).is_err()
+            ScdcClient::read_update_flags(&mut fails())
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
-        assert!(ScdcClient::read_ltp_requests(&mut fails()).is_err());
-        assert!(ScdcClient::read_source_test_config(&mut fails()).is_err());
-        assert!(ScdcClient::write_config_0_defaults(&mut fails()).is_err());
+        assert!(
+            ScdcClient::clear_update_flags(&mut fails(), ClearableUpdateFlags::default())
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
+        );
+        assert!(
+            ScdcClient::read_ltp_requests(&mut fails())
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
+        );
+        assert!(
+            ScdcClient::read_source_test_config(&mut fails())
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
+        );
+        assert!(
+            ScdcClient::write_config_0_defaults(&mut fails())
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
+        );
         assert!(
             ScdcClient::write_frl_config(
                 &mut fails(),
                 FrlConfig::new(HdmiForumFrl::Rate6Gbps4Lanes, FfeLevels::default())
             )
-            .is_err()
+            .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
-        assert!(ScdcClient::read_ced(&mut fails()).is_err());
+        assert!(
+            ScdcClient::read_ced(&mut fails())
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
+        );
     }
 }
