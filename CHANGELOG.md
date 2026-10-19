@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Part of Ashlar** — the README now opens with a block naming the
+  [Ashlar](https://ashlar-display.org) stack and linking the other crates in it. Keywords
+  are aligned across the stack, with `ashlar` and `hdmi` on every crate; `ashlar` is added,
+  `embedded` is dropped in favour of more specific keywords. Categories gain
+  `no-std::no-alloc`. The crate's `homepage` is now the Ashlar website.
+
 - **The poll interval and a deadline belong in the polled methods, not the transport.**
   The `plumbob` adapter's documentation, the README and `doc/architecture.md` used to say
   to enforce plumbob's 2 ms poll interval in the transport. plumbob's `ScdcClient`
