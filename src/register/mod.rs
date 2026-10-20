@@ -508,6 +508,135 @@ impl CedCounters {
     }
 }
 
+/// The lanes whose counters the CED registers hold: three for TMDS and 3-lane FRL, four
+/// for 4-lane FRL. It decides what the checksum at `ERR_DET_Checksum` (0x56) covers.
+///
+/// Build it from the link's rate with `From<FrlRate>`: [`FrlRate::NotSupported`] (TMDS)
+/// and the 3-lane rates are `Three`, the 4-lane rates `Four`. Exhaustive: a link has three
+/// or four lanes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CedLanes {
+    /// Lanes 0–2: the checksum covers 0x50–0x56.
+    Three,
+    /// Lanes 0–3: the checksum covers 0x50–0x58.
+    Four,
+}
+
+impl From<FrlRate> for CedLanes {
+    fn from(rate: FrlRate) -> Self {
+        match rate.lanes() {
+            None | Some(display_types::FrlLanes::Three) => Self::Three,
+            Some(display_types::FrlLanes::Four) => Self::Four,
+        }
+    }
+}
+
+/// A non-fatal anomaly in a CED read, returned with the decoded counters in
+/// [`CedReading`].
+///
+/// A warning does not withhold the counts: what to do about it, such as reading again or
+/// not trusting the counts, is the caller's decision.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CedWarning {
+    /// The bytes the checksum covers do not sum to zero (mod 256). Most likely the read
+    /// was torn: the sink updated a counter between two of its bytes. A sink whose
+    /// checksum does not conform shows the same. A valid checksum is not proof of a
+    /// consistent read either: an 8-bit sum misses a tear that leaves it unchanged.
+    #[non_exhaustive]
+    ChecksumMismatch {
+        /// The checksum byte that would make the covered bytes sum to zero.
+        expected: u8,
+        /// The checksum byte read, `ERR_DET_Checksum` (0x56).
+        found: u8,
+    },
+    /// With [`CedLanes::Three`], lane 3's validity bit (0x58 bit 7) is set: the sink
+    /// reports a count for a lane not in use. [`CedCounters::lane3`] stays `None`, as the
+    /// checksum does not cover it; the count is here.
+    #[non_exhaustive]
+    UnusedLaneReported {
+        /// The count the sink reported for lane 3.
+        count: CedCount,
+    },
+}
+
+/// How many warnings a [`CedReading`] can hold: one of each kind.
+const MAX_CED_WARNINGS: usize = 2;
+
+/// Fills the warning slots not in use; never exposed.
+const UNUSED: CedWarning = CedWarning::ChecksumMismatch {
+    expected: 0,
+    found: 0,
+};
+
+/// The per-lane character error counts from one read of the CED registers, with what the
+/// read found wrong.
+///
+/// The checksum is always checked; a mismatch is a [`CedWarning`], not an error, and the
+/// counters are decoded either way. Read the warnings with [`warnings`](Self::warnings)
+/// or [`iter_warnings`](Self::iter_warnings); the storage is private.
+///
+/// The counters accumulate and saturate at 0x7FFF, so a saturated count means "at least".
+/// A sink may clear them when they are read, so a reading is a running total on some sinks
+/// and the count since the previous read on others; a reading lower than the previous one
+/// means a reset (clear on read, hot plug, an SCDC clear), and counting starts again from
+/// it. Count afresh after retraining, a rate change or a hot plug too. A lane without a
+/// valid count is `None`: unknown, not zero.
+#[non_exhaustive]
+#[derive(Clone)]
+pub struct CedReading {
+    /// The decoded counters, whatever the warnings say.
+    pub counters: CedCounters,
+    /// The first `len` slots hold the warnings, the rest [`UNUSED`].
+    warnings: [CedWarning; MAX_CED_WARNINGS],
+    len: usize,
+}
+
+impl CedReading {
+    pub(crate) fn new(counters: CedCounters) -> Self {
+        Self {
+            counters,
+            warnings: [UNUSED; MAX_CED_WARNINGS],
+            len: 0,
+        }
+    }
+
+    /// Adds a warning. Each kind occurs at most once per read, so a slot is always free.
+    pub(crate) fn push(&mut self, warning: CedWarning) {
+        if let Some(slot) = self.warnings.get_mut(self.len) {
+            *slot = warning;
+            self.len += 1;
+        }
+    }
+
+    /// The warnings, in the order they were found.
+    pub fn warnings(&self) -> &[CedWarning] {
+        &self.warnings[..self.len]
+    }
+
+    /// The warnings, in the order they were found.
+    pub fn iter_warnings(&self) -> impl Iterator<Item = &CedWarning> {
+        self.warnings().iter()
+    }
+}
+
+impl core::fmt::Debug for CedReading {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("CedReading")
+            .field("counters", &self.counters)
+            .field("warnings", &self.warnings())
+            .finish()
+    }
+}
+
+impl PartialEq for CedReading {
+    fn eq(&self, other: &Self) -> bool {
+        self.counters == other.counters && self.warnings() == other.warnings()
+    }
+}
+
+impl Eq for CedReading {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

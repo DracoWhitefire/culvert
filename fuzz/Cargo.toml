@@ -27,3 +27,9 @@ path = "fuzz_targets/ced.rs"
 test = false
 doc = false
 bench = false
+
+# Temporary, until display-types 0.4.3 (`HdmiForumFrl::lanes`) is published: replaces
+# display-types for the whole graph, hdmi-hal's and plumbob's dependency included. Remove
+# before merging.
+[patch.crates-io]
+display-types = { path = "../../display-types" }
