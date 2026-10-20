@@ -1,7 +1,7 @@
 #![no_main]
 
 use culvert::Scdc;
-use hdmi_hal::scdc::ScdcTransport;
+use hdmi_hal::scdc::{read_block_bytewise, ScdcTransport};
 use libfuzzer_sys::fuzz_target;
 
 struct FuzzTransport([u8; 256]);
@@ -16,6 +16,11 @@ impl ScdcTransport for FuzzTransport {
     fn write(&mut self, reg: u8, value: u8) -> Result<(), Self::Error> {
         self.0[reg as usize] = value;
         Ok(())
+    }
+
+    fn read_block(&self, reg: u8, buf: &mut [u8]) -> Result<(), Self::Error> {
+        // A register array has no bus transaction to read in one go: one `read` per byte.
+        read_block_bytewise(self, reg, buf)
     }
 }
 

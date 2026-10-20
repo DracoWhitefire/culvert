@@ -7,7 +7,7 @@
 
 use core::convert::Infallible;
 use culvert::{ClearableUpdateFlags, FfeLevels, FrlConfig, FrlRate, Scdc, TmdsConfig};
-use hdmi_hal::scdc::ScdcTransport;
+use hdmi_hal::scdc::{ScdcTransport, read_block_bytewise};
 
 // ── simulated transport ───────────────────────────────────────────────────────
 
@@ -35,6 +35,11 @@ impl ScdcTransport for SimulatedScdc {
     fn write(&mut self, reg: u8, value: u8) -> Result<(), Infallible> {
         self.regs[reg as usize] = value;
         Ok(())
+    }
+
+    fn read_block(&self, reg: u8, buf: &mut [u8]) -> Result<(), Infallible> {
+        // A register array has no bus transaction to read in one go: one `read` per byte.
+        read_block_bytewise(self, reg, buf)
     }
 }
 
