@@ -26,20 +26,32 @@ impl<T: ScdcTransport> Scdc<T> {
 
     /// Reads the Reed-Solomon correction count from `RS_Correction_L/H` (0x59/0x5A).
     ///
-    /// Returns `None` if the high byte's validity bit (bit 7) is not set. The count is
-    /// maintained by the sink in FRL mode; `UpdateFlags::rsed_update` signals a change.
+    /// Returns `None` if the high byte's validity bit (bit 7) is not set: unknown, not
+    /// zero. The count is maintained by the sink in FRL mode.
     ///
-    /// The two bytes are separate reads, so a count the sink updates between them can be
-    /// torn. Treat it as a diagnostic.
+    /// Both bytes are one [`read_block`](ScdcTransport::read_block), so on a transport that
+    /// reads a block in one transaction a sink update cannot fall between them; one that
+    /// reads a register at a time ([`read_block_bytewise`]) says so. The count has no
+    /// checksum: the transaction is its only protection against a torn read.
+    ///
+    /// The count accumulates and saturates at 0x7FFF, so a saturated count means "at
+    /// least". A sink may clear it when it is read, so a reading is a running total on
+    /// some sinks and the count since the previous read on others; a reading lower than
+    /// the previous one means a reset (clear on read, hot plug, an SCDC clear), and
+    /// counting starts again from it. Count afresh after retraining, a rate change or a
+    /// hot plug too.
+    ///
+    /// `UpdateFlags::rsed_update` means corrections are occurring, rather than that the
+    /// count changed, and a sink may never set it: read the count regularly rather than
+    /// only after the flag.
+    ///
+    /// [`read_block_bytewise`]: hdmi_hal::scdc::read_block_bytewise
     pub fn read_rs_correction(&mut self) -> Result<Option<RsCorrectionCount>, ScdcError<T::Error>> {
-        let low = self
-            .transport
-            .read(codec::RS_CORRECTION_L)
+        let mut bytes = [0; 2];
+        self.transport
+            .read_block(codec::RS_CORRECTION_L, &mut bytes)
             .map_err(ScdcError::Transport)?;
-        let high = self
-            .transport
-            .read(codec::RS_CORRECTION_H)
-            .map_err(ScdcError::Transport)?;
+        let [low, high] = bytes;
         Ok(codec::decode_rs_correction(low, high))
     }
 }
@@ -94,12 +106,12 @@ mod tests {
     }
 
     #[test]
-    fn read_rs_correction_reads_low_then_high() {
+    fn read_rs_correction_reads_low_and_high_in_one_block() {
         let mut scdc = Scdc::new(TestTransport::new());
         scdc.read_rs_correction().unwrap();
         assert_eq!(
-            scdc.into_transport().log()[..3],
-            [Some(Op::Read(0x59)), Some(Op::Read(0x5A)), None]
+            scdc.into_transport().log()[..2],
+            [Some(Op::ReadBlock(0x59, 2)), None]
         );
     }
 
@@ -153,12 +165,16 @@ mod tests {
 
     #[test]
     fn rs_correction_transport_error() {
-        for n in 0..2 {
-            assert!(
-                Scdc::new(TestTransport::failing_after(n))
-                    .read_rs_correction()
-                    .is_err_and(|error| matches!(error, ScdcError::Transport(())))
-            );
-        }
+        // The count is one block read.
+        assert!(
+            Scdc::new(TestTransport::failing_after(0))
+                .read_rs_correction()
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
+        );
+        assert!(
+            Scdc::new(TestTransport::failing_after(1))
+                .read_rs_correction()
+                .is_ok()
+        );
     }
 }
