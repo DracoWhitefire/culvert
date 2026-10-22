@@ -1,6 +1,6 @@
 #![no_main]
 
-use culvert::Scdc;
+use culvert::{codec, CedLanes, CedWarning, Scdc};
 use hdmi_hal::scdc::{read_block_bytewise, ScdcTransport};
 use libfuzzer_sys::fuzz_target;
 
@@ -28,13 +28,39 @@ fuzz_target!(|data: &[u8]| {
     if data.len() < 9 {
         return;
     }
+    // A tenth byte picks the lane count (odd: four lanes); without one, three.
+    let lanes = match data.get(9) {
+        Some(byte) if byte & 1 != 0 => CedLanes::Four,
+        _ => CedLanes::Three,
+    };
+    let block: [u8; 9] = data[..9].try_into().unwrap();
 
     let mut regs = [0u8; 256];
     // ERR_DET registers 0x50–0x58: low/high byte pairs for lanes 0–2, the CED
     // checksum at 0x56, and lane 3 at 0x57–0x58.
-    regs[0x50..=0x58].copy_from_slice(&data[..9]);
+    regs[0x50..=0x58].copy_from_slice(&block);
 
     let mut scdc = Scdc::new(FuzzTransport(regs));
-    // Must not panic; always returns Ok(CedCounters) — no error path in read_ced.
-    let _ = scdc.read_ced();
+    // The transport cannot fail, and a CED read has no other error.
+    let reading = scdc.read_ced(lanes).unwrap();
+
+    // The client decodes what the codec does.
+    assert_eq!(reading, codec::decode_ced_block(&block, lanes));
+    // A checksum warning exactly when the covered bytes do not sum to zero.
+    let covered = match lanes {
+        CedLanes::Three => &block[..7],
+        CedLanes::Four => &block[..],
+    };
+    let sum = covered
+        .iter()
+        .fold(0u8, |sum, &byte| sum.wrapping_add(byte));
+    let mismatch = reading
+        .iter_warnings()
+        .any(|warning| matches!(warning, CedWarning::ChecksumMismatch { .. }));
+    assert_eq!(mismatch, sum != 0);
+    // Lane 3 is a count only with four lanes; at most one warning of each kind.
+    if lanes == CedLanes::Three {
+        assert!(reading.counters.lane3.is_none());
+    }
+    assert!(reading.warnings().len() <= 2);
 });

@@ -25,9 +25,10 @@ plumbob = { optional = true, version = "^0.3.0" }
 [dev-dependencies]
 hdmi-hal = { version = "0.5", default-features = false }
 
-# Temporary, until display-types 0.4.3 (`HdmiForumFrl::lanes`) and hdmi-hal with the
-# required `read_block` are published: replaces them for the whole graph, hdmi-hal's and
-# plumbob's dependencies included. Remove before merging.
+# Temporary, until display-types 0.4.3 (`HdmiForumFrl::lanes`), hdmi-hal with the required
+# `read_block` and plumbob without `read_ced` are published: replaces them for the whole
+# graph, each other's dependencies included. Remove before merging.
 [patch.crates-io]
+plumbob = { path = "../plumbob" }
 hdmi-hal = { path = "../hdmi-hal" }
 display-types = { path = "../display-types" }

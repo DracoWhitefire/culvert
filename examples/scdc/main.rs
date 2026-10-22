@@ -6,7 +6,7 @@
 //! and write paths.
 
 use core::convert::Infallible;
-use culvert::{ClearableUpdateFlags, FfeLevels, FrlConfig, FrlRate, Scdc, TmdsConfig};
+use culvert::{CedLanes, ClearableUpdateFlags, FfeLevels, FrlConfig, FrlRate, Scdc, TmdsConfig};
 use hdmi_hal::scdc::{ScdcTransport, read_block_bytewise};
 
 // ── simulated transport ───────────────────────────────────────────────────────
@@ -80,7 +80,8 @@ fn main() {
     // Lanes 2 and 3: validity bit not set → will decode as None
     transport.set(0x54, 0x00); // lane 2 low
     transport.set(0x55, 0x00); // lane 2 high
-    transport.set(0x57, 0x00); // lane 3 low (0x56 is the CED checksum)
+    transport.set(0x56, 0xAE); // CED checksum: 0x50–0x56 sum to zero
+    transport.set(0x57, 0x00); // lane 3 low
     transport.set(0x58, 0x00); // lane 3 high
 
     let mut scdc = Scdc::new(transport);
@@ -113,11 +114,14 @@ fn main() {
         updates.status_update, updates.ced_update, updates.frl_start, updates.flt_update
     );
 
-    let ced = scdc.read_ced().unwrap();
+    // A 3-lane link: lanes 0–2, the checksum over 0x50–0x56.
+    let reading = scdc.read_ced(CedLanes::Three).unwrap();
+    let ced = reading.counters;
     println!("CED lane 0:         {:?}", ced.lane0.map(|c| c.value()));
     println!("CED lane 1:         {:?}", ced.lane1.map(|c| c.value()));
     println!("CED lane 2:         {:?}", ced.lane2);
     println!("CED lane 3:         {:?}", ced.lane3);
+    println!("CED warnings:       {:?}", reading.warnings());
 
     // --- Write path ---
 

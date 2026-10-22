@@ -76,19 +76,6 @@ pub const CED_BLOCK_START: u8 = ERR_DET_0_L;
 /// read whole whatever the lane count, in one transaction.
 pub const CED_BLOCK_LEN: usize = 9;
 
-/// The registers [`decode_ced`] takes, in order: each lane's low and high byte, skipping
-/// the checksum at 0x56.
-pub const CED_REGISTERS: [u8; 8] = [
-    ERR_DET_0_L,
-    ERR_DET_0_H,
-    ERR_DET_1_L,
-    ERR_DET_1_H,
-    ERR_DET_2_L,
-    ERR_DET_2_H,
-    ERR_DET_3_L,
-    ERR_DET_3_H,
-];
-
 // --- Encoding and decoding
 
 /// Encodes `TMDS_Config`: `Scrambling_Enable` (bit 0) and `TMDS_Bit_Clock_Ratio` (bit 1).
@@ -183,22 +170,6 @@ pub fn decode_ltp_requests(status_flags_1: u8, status_flags_2: u8) -> LtpRequest
         lane1: LtpReq::from_nibble(status_flags_1 >> 4),
         lane2: LtpReq::from_nibble(status_flags_2),
         lane3: LtpReq::from_nibble(status_flags_2 >> 4),
-    }
-}
-
-/// Decodes the per-lane character error counts from the bytes of [`CED_REGISTERS`], in
-/// that order. Each high byte's bit 7 is a validity flag; a lane whose flag is clear is
-/// `None`.
-pub fn decode_ced(bytes: [u8; 8]) -> CedCounters {
-    let [l0, h0, l1, h1, l2, h2, l3, h3] = bytes;
-    let decode = |lo: u8, hi: u8| -> Option<CedCount> {
-        (hi & 0x80 != 0).then(|| CedCount::new(((hi as u16) << 8) | lo as u16))
-    };
-    CedCounters {
-        lane0: decode(l0, h0),
-        lane1: decode(l1, h1),
-        lane2: decode(l2, h2),
-        lane3: decode(l3, h3),
     }
 }
 
