@@ -51,9 +51,11 @@ impl<T: ScdcTransport> Scdc<T> {
     /// Reads the per-lane link training pattern requests from `Status_Flags_1` (0x41,
     /// lanes 0–1) and `Status_Flags_2` (0x42, lanes 2–3).
     ///
-    /// Both registers are one [`read_block`](ScdcTransport::read_block), so on a transport
-    /// that reads a block in one transaction a sink update cannot fall between them; one
-    /// that reads a register at a time ([`read_block_bytewise`]) says so.
+    /// Both registers are one [`read_block`](ScdcTransport::read_block): one transaction,
+    /// so the transport does not split them; whether the sink holds them still during it is
+    /// up to the sink, and a transport that reads a register at a time
+    /// ([`read_block_bytewise`]), or a bus driver that does, splits them anyway. They have
+    /// no checksum, so a torn read cannot be detected.
     ///
     /// A value the HDMI 2.1 specification leaves undefined (0x9–0xD) is
     /// [`LtpReq::Reserved`](crate::LtpReq::Reserved), not an error.

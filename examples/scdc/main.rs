@@ -6,7 +6,7 @@
 //! and write paths.
 
 use core::convert::Infallible;
-use culvert::{CedLanes, ClearableUpdateFlags, FfeLevels, FrlConfig, FrlRate, Scdc, TmdsConfig};
+use culvert::{ClearableUpdateFlags, FfeLevels, FrlConfig, FrlRate, HdmiLanes, Scdc, TmdsConfig};
 use hdmi_hal::scdc::{ScdcTransport, read_block_bytewise};
 
 // ── simulated transport ───────────────────────────────────────────────────────
@@ -115,7 +115,7 @@ fn main() {
     );
 
     // A 3-lane link: lanes 0–2, the checksum over 0x50–0x56.
-    let reading = scdc.read_ced(CedLanes::Three).unwrap();
+    let reading = scdc.read_ced(HdmiLanes::Three).unwrap();
     let ced = reading.counters;
     println!("CED lane 0:         {:?}", ced.lane0.map(|c| c.value()));
     println!("CED lane 1:         {:?}", ced.lane1.map(|c| c.value()));

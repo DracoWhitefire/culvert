@@ -133,7 +133,7 @@ see [Sources](#sources) for how each was established.
   covers it.
 
 `read_ced` reads 0x50–0x58 as one block and checks the checksum for the link's lane count
-(`CedLanes`); a mismatch is a warning, not an error (see "Error Handling"). The coverage
+(display-types' `HdmiLanes`, re-exported: `rate.lanes()`, three for TMDS); a mismatch is a warning, not an error (see "Error Handling"). The coverage
 follows three implementations that agree: the Amlogic transmitter drivers, the Linux
 kernel's SCDC helper (`drm_scdc_helper.c`, 2026) and edid-decode; a patent of LG's
 supports the TMDS range. How the counters behave, from what public sources show (no
@@ -147,21 +147,24 @@ source defines all of it):
   therefore tells a caller to treat a reading lower than the previous one as a reset, and
   to count afresh after retraining, a rate change or a hot plug, which is right either
   way.
-- `CED_Update` / `RSED_Update` are set when errors occur and latch until the source
-  clears them (one receiver sets `CED_Update` when a counter rises by 4 or more in a
-  second, or first saturates, and never clears it itself). A receiver has shipped that
-  never set `CED_Update` (an Intel errata). So a caller reads the counters regularly, takes
-  the flag as a hint at most, and clears it before reading the counters, so an error after
-  the clear sets it again.
-
-Checked on hardware (October 2026; an LG ULTRAGEAR over amdgpu's DDC, TMDS, scrambled):
-the whole map read as 32-byte block reads matched byte reads on every stable register;
-the sink's checksum made 0x50–0x56 sum to zero with the three validity bits set
-(0x80 × 3 + 0x80); `CED_Update` was set with every count zero, and once cleared stayed
-clear for five seconds on the error-free link, which is what a latched flag does. The
-counts stayed zero throughout, so clear on read and tearing could not be observed.
+- `CED_Update` / `RSED_Update` are set by the sink and kept until the source clears them:
+  the register is write-1-to-clear, and one receiver sets `CED_Update` when a counter
+  rises by 4 or more in a second, or first saturates, and never clears it itself. When a
+  sink sets them is not settled: one was seen with `CED_Update` set and every count zero
+  (below), so a set flag does not mean there are counts. A receiver has shipped that never
+  set `CED_Update` (an Intel errata). So a caller reads the counters regularly, takes the
+  flag as a hint at most, and clears it before reading the counters, which is right
+  however the sink sets it.
 - No public source defines the validity bit beyond "valid"; a lane without it is `None`,
   unknown rather than zero.
+
+Checked on hardware (October 2026; one sink, an LG ULTRAGEAR over amdgpu's DDC, TMDS,
+scrambled): the whole map read as 32-byte block reads matched byte reads on every stable
+register; the sink's checksum made 0x50–0x56 sum to zero with the three validity bits set
+(0x80 × 3 + 0x80); `CED_Update` was set with every count zero, and once cleared was not
+set again within five seconds on the error-free link. Why it was set is open: our own
+reads cannot explain it, since the first CED read of the first run already read zero. The
+counts stayed zero throughout, so clear on read and tearing could not be observed.
 
 ### Sources
 
@@ -280,7 +283,7 @@ impl<T: ScdcTransport> Scdc<T> {
     pub fn clear_update_flags(&mut self, flags: ClearableUpdateFlags) -> Result<(), ScdcError<T::Error>>;
 
     // CED
-    pub fn read_ced(&mut self, lanes: CedLanes) -> Result<CedReading, ScdcError<T::Error>>;
+    pub fn read_ced(&mut self, lanes: HdmiLanes) -> Result<CedReading, ScdcError<T::Error>>;
     pub fn read_rs_correction(&mut self) -> Result<Option<RsCorrectionCount>, ScdcError<T::Error>>;
 }
 ```
@@ -300,13 +303,16 @@ multiple registers, each read with one `ScdcTransport::read_block`:
   or lane 3 reports a count at three lanes.
 - `read_rs_correction()` reads `RS_Correction_L/H` (0x59–0x5A).
 
-`hdmi-hal`'s `read_block` contract makes each one DDC transaction on a transport that
-can burst-read, so a counter the sink updates cannot be read half before and half after
-the update; a transport that reads one register at a time (`read_block_bytewise`) says
-so. The CED checksum catches most torn CED reads either way; the LTP requests and the RS
-count have no checksum, so for them the one transaction is the only protection. The
-review that found the tearing (0x00FF ticking to 0x0100 read back as 0x01FF) is kept as
-regression tests, `tests/torn_reads.rs`. None of this is a multi-step sequence (write
+`hdmi-hal`'s `read_block` contract makes each one transaction, so the transport does not
+split the registers; whether the sink holds them still during it is up to the sink. A
+transport that reads one register at a time (`read_block_bytewise`) says so, and some bus
+drivers split a block read on the wire anyway (the Synopsys DesignWare HDMI controller's
+reads one byte at a time). The CED checksum is the one protection against a torn read
+that holds on every transport, adapter and sink: it catches most torn CED reads, not all.
+The LTP requests and the RS count have no checksum, so a torn read of them cannot be
+detected; the transaction narrows the window, on a transport and adapter that keep it.
+The tearing (0x00FF ticking to 0x0100 read back as 0x01FF) is kept as regression tests,
+`tests/torn_reads.rs`. None of this is a multi-step sequence (write
 rate, poll for ready, handle pattern request): those belong in the link training crate.
 
 ---
@@ -448,9 +454,10 @@ pub struct CedCounters {
     pub lane3: Option<CedCount>,   // None in TMDS / 3-lane FRL mode
 }
 
-/// The lanes the CED block holds counters for: what the checksum covers.
-/// `From<FrlRate>`: `NotSupported` (TMDS) and the 3-lane rates are `Three`.
-pub enum CedLanes { Three, Four }
+/// The link's data lanes, re-exported from display-types (`FrlRate::lanes()`, total:
+/// `NotSupported`, TMDS, is `Three`). With `Three` the checksum covers 0x50–0x56, with
+/// `Four` 0x50–0x58.
+pub use display_types::HdmiLanes; // enum HdmiLanes { Three, Four }
 
 /// One CED read: the counters, decoded whatever the warnings say, and the warnings,
 /// stored privately (`warnings()`, `iter_warnings()`).
@@ -462,13 +469,14 @@ pub struct CedReading {
 pub enum CedWarning {
     /// The covered bytes do not sum to zero: most likely a torn read.
     ChecksumMismatch { expected: u8, found: u8 },
-    /// Lane 3 reports a count with `CedLanes::Three`; `lane3` stays `None`.
+    /// Lane 3 reports a count with `HdmiLanes::Three`; `lane3` stays `None`.
     UnusedLaneReported { count: CedCount },
 }
 ```
 
 All output structs are `#[non_exhaustive]` for forward compatibility, and so are
-`CedWarning` and each of its variants. `CedLanes` is not: a link has three or four lanes.
+`CedWarning` and each of its variants. `HdmiLanes` is display-types' and exhaustive: every
+HDMI version that defines FRL has three or four lanes.
 
 ---
 

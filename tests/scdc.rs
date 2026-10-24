@@ -6,7 +6,7 @@
 
 use core::convert::Infallible;
 use culvert::{
-    CedLanes, ClearableUpdateFlags, Config0, FfeLevels, FrlConfig, FrlRate, LtpReq, Scdc,
+    ClearableUpdateFlags, Config0, FfeLevels, FrlConfig, FrlRate, HdmiLanes, LtpReq, Scdc,
     TmdsConfig,
 };
 use hdmi_hal::scdc::{ScdcTransport, read_block_bytewise};
@@ -226,7 +226,7 @@ fn read_ced_decodes_valid_and_invalid_lanes() {
     transport.set(0x58, 0x00);
     let mut scdc = Scdc::new(transport);
 
-    let reading = scdc.read_ced(CedLanes::Three).unwrap();
+    let reading = scdc.read_ced(HdmiLanes::Three).unwrap();
 
     let ced = reading.counters;
     assert_eq!(ced.lane0.map(|c| c.value()), Some(0x0134));
@@ -239,7 +239,7 @@ fn read_ced_decodes_valid_and_invalid_lanes() {
 #[test]
 fn read_ced_all_invalid() {
     let mut scdc = Scdc::new(SimulatedScdc::new());
-    let reading = scdc.read_ced(CedLanes::Four).unwrap();
+    let reading = scdc.read_ced(HdmiLanes::Four).unwrap();
     // All zero: no counts, and a valid checksum.
     assert_eq!(reading.warnings(), []);
     let ced = reading.counters;

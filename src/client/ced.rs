@@ -2,7 +2,7 @@ use hdmi_hal::scdc::ScdcTransport;
 
 use crate::codec;
 use crate::error::ScdcError;
-use crate::register::{CedLanes, CedReading, RsCorrectionCount};
+use crate::register::{CedReading, HdmiLanes, RsCorrectionCount};
 
 use super::Scdc;
 
@@ -11,9 +11,9 @@ impl<T: ScdcTransport> Scdc<T> {
     /// 0–2, the checksum at 0x56, lane 3), in one [`read_block`](ScdcTransport::read_block),
     /// and checks the checksum.
     ///
-    /// `lanes` is the link's: [`CedLanes::Three`] for TMDS and 3-lane FRL, `Four` for 4-lane
-    /// FRL (`CedLanes::from(rate)`). It decides what the checksum covers and whether lane 3
-    /// is read as a count.
+    /// `lanes` is the link's: [`HdmiLanes::Three`] for TMDS and 3-lane FRL, `Four` for 4-lane
+    /// FRL (`rate.lanes()`). It decides what the checksum covers and whether lane 3 is read
+    /// as a count.
     ///
     /// `Err` only for a transport failure. What the read finds wrong is a
     /// [`CedWarning`](crate::CedWarning) in the [`CedReading`], with the counters decoded
@@ -22,13 +22,21 @@ impl<T: ScdcTransport> Scdc<T> {
     /// the caller's decision, and a sink that clears the counters on read returns different
     /// counts the second time.
     ///
-    /// On a transport that reads a block in one transaction, the counters cannot be torn
-    /// between their bytes by the transport; one that reads a register at a time
-    /// ([`read_block_bytewise`]) says so, and the checksum is then what catches most torn
-    /// reads. [`CedReading`] says how the counts behave (saturation, clear on read, resets).
+    /// One transaction keeps the transport from splitting the block; whether the sink holds
+    /// its registers still during it is up to the sink, and a transport that reads a
+    /// register at a time ([`read_block_bytewise`]), or a bus driver that does, splits it
+    /// anyway. The checksum is the one protection against a torn read that holds on every
+    /// transport and adapter: it catches most torn reads, not all. [`CedReading`] says how
+    /// the counts behave (saturation, clear on read, resets).
+    ///
+    /// `UpdateFlags::ced_update` is set by the sink and kept until the source clears it,
+    /// but it is a hint at most: it has been seen set with every count zero, and a sink may
+    /// never set it. Read the counters regularly rather than only after the flag, and clear
+    /// the flag before reading them
+    /// ([`clear_update_flags`](Self::clear_update_flags) says why).
     ///
     /// [`read_block_bytewise`]: hdmi_hal::scdc::read_block_bytewise
-    pub fn read_ced(&mut self, lanes: CedLanes) -> Result<CedReading, ScdcError<T::Error>> {
+    pub fn read_ced(&mut self, lanes: HdmiLanes) -> Result<CedReading, ScdcError<T::Error>> {
         let mut block = [0; codec::CED_BLOCK_LEN];
         self.transport
             .read_block(codec::CED_BLOCK_START, &mut block)
@@ -41,10 +49,12 @@ impl<T: ScdcTransport> Scdc<T> {
     /// Returns `None` if the high byte's validity bit (bit 7) is not set: unknown, not
     /// zero. The count is maintained by the sink in FRL mode.
     ///
-    /// Both bytes are one [`read_block`](ScdcTransport::read_block), so on a transport that
-    /// reads a block in one transaction a sink update cannot fall between them; one that
-    /// reads a register at a time ([`read_block_bytewise`]) says so. The count has no
-    /// checksum: the transaction is its only protection against a torn read.
+    /// Both bytes are one [`read_block`](ScdcTransport::read_block): one transaction, so
+    /// the transport does not split them; whether the sink holds them still during it is
+    /// up to the sink, and a transport that reads a register at a time
+    /// ([`read_block_bytewise`]), or a bus driver that does, splits them anyway. The count
+    /// has no checksum, so a torn read cannot be detected: unlike the CED counters, nothing
+    /// protects it on every adapter.
     ///
     /// The count accumulates and saturates at 0x7FFF, so a saturated count means "at
     /// least". A sink may clear it when it is read, so a reading is a running total on
@@ -53,9 +63,9 @@ impl<T: ScdcTransport> Scdc<T> {
     /// counting starts again from it. Count afresh after retraining, a rate change or a
     /// hot plug too.
     ///
-    /// `UpdateFlags::rsed_update` is a latched hint: the sink sets it when corrections
-    /// occur, and it stays set until the source clears it; a sink may never set it. Read
-    /// the count regularly rather than only after the flag.
+    /// `UpdateFlags::rsed_update` is set by the sink and kept until the source clears it,
+    /// a hint at most, as `ced_update` is; a sink may never set it. Read the count regularly
+    /// rather than only after the flag.
     ///
     /// [`read_block_bytewise`]: hdmi_hal::scdc::read_block_bytewise
     pub fn read_rs_correction(&mut self) -> Result<Option<RsCorrectionCount>, ScdcError<T::Error>> {
@@ -73,14 +83,14 @@ mod tests {
     use super::super::Scdc;
     use super::super::test_transport::{Op, TestTransport};
     use crate::error::ScdcError;
-    use crate::register::{CedCount, CedCounters, CedLanes, CedWarning, FrlRate};
+    use crate::register::{CedCount, CedCounters, CedWarning, FrlRate, HdmiLanes};
 
     /// A transport whose CED block holds `block`, with the checksum at 0x56 made valid for
     /// `lanes`.
-    fn with_block(mut block: [u8; 9], lanes: CedLanes) -> TestTransport {
+    fn with_block(mut block: [u8; 9], lanes: HdmiLanes) -> TestTransport {
         let covered = match lanes {
-            CedLanes::Three => 7,
-            CedLanes::Four => 9,
+            HdmiLanes::Three => 7,
+            HdmiLanes::Four => 9,
         };
         block[6] = 0;
         let sum = block[..covered]
@@ -96,7 +106,7 @@ mod tests {
 
     #[test]
     fn read_ced_is_one_block_read_of_0x50_to_0x58() {
-        for lanes in [CedLanes::Three, CedLanes::Four] {
+        for lanes in [HdmiLanes::Three, HdmiLanes::Four] {
             let mut scdc = Scdc::new(TestTransport::new());
             scdc.read_ced(lanes).unwrap();
             assert_eq!(
@@ -109,8 +119,8 @@ mod tests {
     #[test]
     fn ced_validity_bit_required() {
         // High byte with bit 7 clear → None regardless of counter value.
-        let sim = with_block([0xFF, 0x7F, 0, 0, 0, 0, 0, 0, 0], CedLanes::Three);
-        let reading = Scdc::new(sim).read_ced(CedLanes::Three).unwrap();
+        let sim = with_block([0xFF, 0x7F, 0, 0, 0, 0, 0, 0, 0], HdmiLanes::Three);
+        let reading = Scdc::new(sim).read_ced(HdmiLanes::Three).unwrap();
         assert_eq!(reading.counters.lane0, None);
         assert_eq!(reading.warnings(), []);
     }
@@ -118,8 +128,8 @@ mod tests {
     #[test]
     fn ced_counter_validity_bit_stripped() {
         // High byte: bit 7 set (valid), counter bits = 0x01; low byte = 0x23.
-        let sim = with_block([0x23, 0x81, 0, 0, 0, 0, 0, 0, 0], CedLanes::Three);
-        let reading = Scdc::new(sim).read_ced(CedLanes::Three).unwrap();
+        let sim = with_block([0x23, 0x81, 0, 0, 0, 0, 0, 0, 0], HdmiLanes::Three);
+        let reading = Scdc::new(sim).read_ced(HdmiLanes::Three).unwrap();
         assert_eq!(reading.counters.lane0, Some(CedCount::new(0x0123)));
     }
 
@@ -127,8 +137,8 @@ mod tests {
     fn ced_each_lane_from_its_own_registers() {
         // A distinct, asymmetric low/high pair per lane, so a swapped byte or lane shows.
         let block = [0x02, 0x83, 0x04, 0x85, 0x06, 0x87, 0, 0x08, 0x89];
-        let reading = Scdc::new(with_block(block, CedLanes::Four))
-            .read_ced(CedLanes::Four)
+        let reading = Scdc::new(with_block(block, HdmiLanes::Four))
+            .read_ced(HdmiLanes::Four)
             .unwrap();
         assert_eq!(
             reading.counters,
@@ -146,8 +156,8 @@ mod tests {
     fn ced_lane3_is_not_a_count_in_3_lane_mode() {
         // The checksum at 0x56 is not lane 3; lane 3 is reported, but not in use.
         let block = [0, 0, 0, 0, 0, 0, 0, 0x01, 0x80];
-        let reading = Scdc::new(with_block(block, CedLanes::Three))
-            .read_ced(CedLanes::Three)
+        let reading = Scdc::new(with_block(block, HdmiLanes::Three))
+            .read_ced(HdmiLanes::Three)
             .unwrap();
         assert_eq!(reading.counters.lane3, None);
         assert_eq!(
@@ -160,10 +170,10 @@ mod tests {
 
     #[test]
     fn ced_checksum_mismatch_is_a_warning_with_the_counts() {
-        let mut sim = with_block([0x34, 0x81, 0, 0, 0, 0, 0, 0, 0], CedLanes::Three);
+        let mut sim = with_block([0x34, 0x81, 0, 0, 0, 0, 0, 0, 0], HdmiLanes::Three);
         let checksum = sim.get(0x56);
         sim.set(0x56, checksum ^ 0x01);
-        let reading = Scdc::new(sim).read_ced(CedLanes::Three).unwrap();
+        let reading = Scdc::new(sim).read_ced(HdmiLanes::Three).unwrap();
         assert_eq!(reading.counters.lane0, Some(CedCount::new(0x0134)));
         assert_eq!(
             reading.warnings(),
@@ -177,8 +187,8 @@ mod tests {
     #[test]
     fn ced_lanes_from_the_link_rate() {
         let block = [0, 0, 0, 0, 0, 0, 0, 0x08, 0x89];
-        let reading = Scdc::new(with_block(block, CedLanes::Four))
-            .read_ced(FrlRate::Rate12Gbps4Lanes.into())
+        let reading = Scdc::new(with_block(block, HdmiLanes::Four))
+            .read_ced(FrlRate::Rate12Gbps4Lanes.lanes())
             .unwrap();
         assert_eq!(reading.counters.lane3, Some(CedCount::new(0x0908)));
         assert_eq!(reading.warnings(), []);
@@ -199,12 +209,12 @@ mod tests {
         // The block is one read.
         assert!(
             Scdc::new(TestTransport::failing_after(0))
-                .read_ced(CedLanes::Three)
+                .read_ced(HdmiLanes::Three)
                 .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
         assert!(
             Scdc::new(TestTransport::failing_after(1))
-                .read_ced(CedLanes::Three)
+                .read_ced(HdmiLanes::Three)
                 .is_ok()
         );
     }

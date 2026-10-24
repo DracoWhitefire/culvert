@@ -40,7 +40,7 @@ cargo add culvert
 Wrap your transport in `Scdc` and call typed methods:
 
 ```rust
-use culvert::{Scdc, TmdsConfig, FrlConfig, FrlRate, FfeLevels, ClearableUpdateFlags, CedLanes};
+use culvert::{Scdc, TmdsConfig, FrlConfig, FrlRate, FfeLevels, ClearableUpdateFlags};
 
 let mut scdc = Scdc::new(transport);
 
@@ -74,7 +74,7 @@ if updates.flt_update {
 }
 
 // Read per-lane character error counts, the CED block in one read, checksum checked
-let reading = scdc.read_ced(CedLanes::from(FrlRate::Rate12Gbps4Lanes))?;
+let reading = scdc.read_ced(FrlRate::Rate12Gbps4Lanes.lanes())?;
 for warning in reading.iter_warnings() {
     // e.g. a checksum mismatch: the counts may be torn; read again or distrust them
     println!("CED warning: {warning:?}");

@@ -50,26 +50,34 @@ masking, 15-bit value preservation) and `UpdateFlags::new` field ordering.
 three and four lanes, which bytes each lane count covers, `expected` being the checksum
 that makes a block valid, the 0x00FF → 0x0100 torn read, lane 3 reported at three lanes,
 both warnings at once and in order, readings comparing and printing only their warnings,
-and `CedLanes` from every rate. `TestTransport` records a `read_block` as one
+and, exhaustively over every checksum byte, both lane counts and lane 3 valid or not, that
+a mismatch comes exactly when the covered bytes do not sum to zero with `expected` the
+byte that makes them, and lane 3 is reported exactly when valid and not in use (the lane
+count comes from display-types' `lanes()`, tested there). `register` checks that a
+reading holds one warning of each kind, and that one more is a bug (`debug_assert`).
+`TestTransport` records a `read_block` as one
 `Op::ReadBlock(reg, len)`, counted once by `failing_after` (an empty one not at all), so a
 test pins each multi-register method to one transaction.
 
 ### Torn reads (`tests/torn_reads.rs`)
 
-The review that found the tearing, as regression tests: a sink whose lane 0 counter ticks
-while it is read, with a checksum kept correct for its current value. Read one register at
-a time, 0x00FF ticking to 0x0100 reads back as 0x01FF with a `ChecksumMismatch`; read as a
-block in one transaction, during which the sink holds its registers still, it is 0x00FF
-with no warning. A sweep over starting counts shows a counter ticking between bytes never
-passes the checksum, and a block read always returns the starting count.
+The tearing, as regression tests: a sink whose lane 0 counter ticks while it is read,
+with a checksum kept correct for its current value. Read one register at a time, 0x00FF
+ticking to 0x0100 reads back as 0x01FF with a `ChecksumMismatch`. Read as a block from a
+snapshotting sink, one that holds its registers still during the transaction (`Block`;
+the `read_block` contract leaves that to the sink), it is 0x00FF with no warning. A sweep
+over starting counts shows a counter ticking by one per byte never passes the checksum
+(a larger jump can), and a block read from that sink always returns the starting count.
 
 ### Fuzzing (`fuzz/`)
 
 Two `cargo fuzz` targets run the decoding against arbitrary register bytes: `status_flags`
 (0x40–0x42) and `ced` (0x50–0x58, a tenth byte picking three or four lanes). `ced` checks
-that `read_ced` decodes what `codec::decode_ced_block` does, that a checksum warning comes
-exactly when the covered bytes do not sum to zero, that lane 3 is never a count at three
-lanes, and that a read has at most two warnings. The corpus seeds name what they cover
+`read_ced` against the bytes, not against the codec it calls: each lane decoded from its
+own two bytes (lane 3 only with four lanes), a checksum warning exactly when the covered
+bytes do not sum to zero, with `found` the byte read and `expected` the byte that zeroes
+the sum, `UnusedLaneReported` exactly at three lanes with lane 3 valid, carrying its
+count, and no other warning, checksum first. The corpus seeds name what they cover
 (valid blocks for three and four lanes, a torn lane 0, an unused lane 3, a 3-lane
 checksum read as four lanes).
 

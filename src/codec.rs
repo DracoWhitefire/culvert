@@ -16,8 +16,8 @@
 
 use crate::error::ProtocolError;
 use crate::register::{
-    CedCount, CedCounters, CedLanes, CedReading, CedWarning, ClearableUpdateFlags, Config0,
-    FfeLevels, FrlConfig, LtpReq, LtpRequests, RsCorrectionCount, ScramblerStatus,
+    CedCount, CedCounters, CedReading, CedWarning, ClearableUpdateFlags, Config0, FfeLevels,
+    FrlConfig, HdmiLanes, LtpReq, LtpRequests, RsCorrectionCount, ScramblerStatus,
     SourceTestConfig, StatusFlags, TmdsConfig, UpdateFlags,
 };
 
@@ -180,18 +180,18 @@ pub fn decode_ltp_requests(status_flags_1: u8, status_flags_2: u8) -> LtpRequest
 /// - Each lane's counter is its low and high byte; the high byte's bit 7 is a validity
 ///   flag, and a lane whose flag is clear is `None`.
 /// - The checksum (0x56) makes the bytes it covers sum to zero (mod 256): 0x50–0x56 with
-///   [`CedLanes::Three`] (TMDS and 3-lane FRL), 0x50–0x58 with [`CedLanes::Four`]. If they
+///   [`HdmiLanes::Three`] (TMDS and 3-lane FRL), 0x50–0x58 with [`HdmiLanes::Four`]. If they
 ///   do not, [`CedWarning::ChecksumMismatch`].
-/// - With [`CedLanes::Three`], lane 3 is `None`: the checksum does not cover it. If its
+/// - With [`HdmiLanes::Three`], lane 3 is `None`: the checksum does not cover it. If its
 ///   validity bit is set, [`CedWarning::UnusedLaneReported`] carries the count.
-pub fn decode_ced_block(block: &[u8; CED_BLOCK_LEN], lanes: CedLanes) -> CedReading {
+pub fn decode_ced_block(block: &[u8; CED_BLOCK_LEN], lanes: HdmiLanes) -> CedReading {
     let [l0, h0, l1, h1, l2, h2, checksum, l3, h3] = *block;
     let decode = |lo: u8, hi: u8| -> Option<CedCount> {
         (hi & 0x80 != 0).then(|| CedCount::new(((hi as u16) << 8) | lo as u16))
     };
     let covered = match lanes {
-        CedLanes::Three => &block[..7],
-        CedLanes::Four => &block[..],
+        HdmiLanes::Three => &block[..7],
+        HdmiLanes::Four => &block[..],
     };
     let sum = covered
         .iter()
@@ -201,8 +201,8 @@ pub fn decode_ced_block(block: &[u8; CED_BLOCK_LEN], lanes: CedLanes) -> CedRead
         lane1: decode(l1, h1),
         lane2: decode(l2, h2),
         lane3: match lanes {
-            CedLanes::Three => None,
-            CedLanes::Four => decode(l3, h3),
+            HdmiLanes::Three => None,
+            HdmiLanes::Four => decode(l3, h3),
         },
     });
     if sum != 0 {
@@ -213,7 +213,7 @@ pub fn decode_ced_block(block: &[u8; CED_BLOCK_LEN], lanes: CedLanes) -> CedRead
             found: checksum,
         });
     }
-    if lanes == CedLanes::Three {
+    if lanes == HdmiLanes::Three {
         if let Some(count) = decode(l3, h3) {
             reading.push(CedWarning::UnusedLaneReported { count });
         }
@@ -230,16 +230,15 @@ pub fn decode_rs_correction(low: u8, high: u8) -> Option<RsCorrectionCount> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::register::FrlRate;
 
     /// A CED block with `counts` as the four lanes' (low, high) bytes and the checksum
     /// that is correct for `lanes`.
-    fn block(counts: [(u8, u8); 4], lanes: CedLanes) -> [u8; CED_BLOCK_LEN] {
+    fn block(counts: [(u8, u8); 4], lanes: HdmiLanes) -> [u8; CED_BLOCK_LEN] {
         let [(l0, h0), (l1, h1), (l2, h2), (l3, h3)] = counts;
         let mut block = [l0, h0, l1, h1, l2, h2, 0, l3, h3];
         let covered = match lanes {
-            CedLanes::Three => &block[..7],
-            CedLanes::Four => &block[..],
+            HdmiLanes::Three => &block[..7],
+            HdmiLanes::Four => &block[..],
         };
         let sum = covered
             .iter()
@@ -257,7 +256,7 @@ mod tests {
     #[test]
     fn three_lanes_with_a_valid_checksum() {
         let lanes = [(0x02, 0x83), (0x04, 0x85), (0x06, 0x87), (0x00, 0x00)];
-        let reading = decode_ced_block(&block(lanes, CedLanes::Three), CedLanes::Three);
+        let reading = decode_ced_block(&block(lanes, HdmiLanes::Three), HdmiLanes::Three);
         assert_eq!(
             reading.counters,
             CedCounters::new(count(0x0302), count(0x0504), count(0x0706), None)
@@ -267,7 +266,7 @@ mod tests {
 
     #[test]
     fn four_lanes_with_a_valid_checksum() {
-        let reading = decode_ced_block(&block(VALID_LANES, CedLanes::Four), CedLanes::Four);
+        let reading = decode_ced_block(&block(VALID_LANES, HdmiLanes::Four), HdmiLanes::Four);
         assert_eq!(
             reading.counters,
             CedCounters::new(count(0x0302), count(0x0504), count(0x0706), count(0x0908))
@@ -278,7 +277,7 @@ mod tests {
     #[test]
     fn a_clear_validity_bit_is_none() {
         let lanes = [(0xFF, 0x7F), (0x04, 0x85), (0x00, 0x00), (0x01, 0x00)];
-        let reading = decode_ced_block(&block(lanes, CedLanes::Four), CedLanes::Four);
+        let reading = decode_ced_block(&block(lanes, HdmiLanes::Four), HdmiLanes::Four);
         assert_eq!(
             reading.counters,
             CedCounters::new(None, count(0x0504), None, None)
@@ -291,9 +290,9 @@ mod tests {
         // The sink's counter is 0x00FF with its checksum; it ticks to 0x0100 between the
         // low and the high byte, which read back as 0x01FF.
         let lanes = [(0xFF, 0x80), (0x00, 0x00), (0x00, 0x00), (0x00, 0x00)];
-        let mut torn = block(lanes, CedLanes::Three);
+        let mut torn = block(lanes, HdmiLanes::Three);
         torn[1] = 0x81;
-        let reading = decode_ced_block(&torn, CedLanes::Three);
+        let reading = decode_ced_block(&torn, HdmiLanes::Three);
         assert_eq!(reading.counters.lane0, count(0x01FF));
         assert_eq!(
             reading.warnings(),
@@ -306,11 +305,11 @@ mod tests {
 
     #[test]
     fn expected_is_the_checksum_that_makes_the_block_valid() {
-        let valid = block(VALID_LANES, CedLanes::Four);
+        let valid = block(VALID_LANES, HdmiLanes::Four);
         let mut wrong = valid;
         wrong[6] = valid[6].wrapping_add(0x10);
         assert_eq!(
-            decode_ced_block(&wrong, CedLanes::Four).warnings(),
+            decode_ced_block(&wrong, HdmiLanes::Four).warnings(),
             [CedWarning::ChecksumMismatch {
                 expected: valid[6],
                 found: wrong[6],
@@ -322,22 +321,22 @@ mod tests {
     fn the_lane_count_decides_what_the_checksum_covers() {
         // Valid for three lanes, with a lane 3 count the 3-lane checksum leaves out.
         let lanes = [(0x02, 0x83), (0x04, 0x85), (0x06, 0x87), (0x08, 0x09)];
-        let three = block(lanes, CedLanes::Three);
-        assert_eq!(decode_ced_block(&three, CedLanes::Three).warnings(), []);
+        let three = block(lanes, HdmiLanes::Three);
+        assert_eq!(decode_ced_block(&three, HdmiLanes::Three).warnings(), []);
         assert!(matches!(
-            decode_ced_block(&three, CedLanes::Four).warnings(),
+            decode_ced_block(&three, HdmiLanes::Four).warnings(),
             [CedWarning::ChecksumMismatch { .. }]
         ));
-        let four = block(lanes, CedLanes::Four);
+        let four = block(lanes, HdmiLanes::Four);
         assert!(matches!(
-            decode_ced_block(&four, CedLanes::Three).warnings(),
+            decode_ced_block(&four, HdmiLanes::Three).warnings(),
             [CedWarning::ChecksumMismatch { .. }]
         ));
     }
 
     #[test]
     fn lane_3_reported_in_3_lane_mode_is_a_warning_not_a_count() {
-        let reading = decode_ced_block(&block(VALID_LANES, CedLanes::Three), CedLanes::Three);
+        let reading = decode_ced_block(&block(VALID_LANES, HdmiLanes::Three), HdmiLanes::Three);
         assert_eq!(reading.counters.lane3, None);
         assert_eq!(
             reading.warnings(),
@@ -348,10 +347,52 @@ mod tests {
     }
 
     #[test]
+    fn the_warnings_follow_the_checksum_byte_and_lane_3_exhaustively() {
+        // Every checksum byte, both lane counts, lane 3 with and without its validity bit:
+        // the inputs that decide the warnings. A mismatch exactly when the covered bytes do
+        // not sum to zero, `expected` the byte that makes them, `found` the byte read; lane
+        // 3 reported exactly when it is valid and not in use.
+        for lanes in [HdmiLanes::Three, HdmiLanes::Four] {
+            for h3 in [0x00, 0x89] {
+                for checksum in 0..=u8::MAX {
+                    let mut bytes = block(
+                        [(0x02, 0x83), (0x04, 0x85), (0x06, 0x87), (0x08, h3)],
+                        lanes,
+                    );
+                    bytes[6] = checksum;
+                    let covered = match lanes {
+                        HdmiLanes::Three => &bytes[..7],
+                        HdmiLanes::Four => &bytes[..],
+                    };
+                    let sum = covered.iter().fold(0u8, |sum, &b| sum.wrapping_add(b));
+                    // The other covered bytes sum to `sum - checksum`: `expected` cancels it.
+                    let mismatch = (sum != 0).then_some(CedWarning::ChecksumMismatch {
+                        expected: checksum.wrapping_sub(sum),
+                        found: checksum,
+                    });
+                    let unused = (lanes == HdmiLanes::Three && h3 & 0x80 != 0).then_some(
+                        CedWarning::UnusedLaneReported {
+                            count: CedCount::new(u16::from(h3) << 8 | 0x08),
+                        },
+                    );
+                    let reading = decode_ced_block(&bytes, lanes);
+                    assert!(
+                        reading
+                            .iter_warnings()
+                            .copied()
+                            .eq([mismatch, unused].into_iter().flatten()),
+                        "{checksum:#04x}, {lanes:?}, {h3:#04x}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn both_warnings_at_once_in_the_order_found() {
-        let mut wrong = block(VALID_LANES, CedLanes::Three);
+        let mut wrong = block(VALID_LANES, HdmiLanes::Three);
         wrong[6] = wrong[6].wrapping_add(1);
-        let reading = decode_ced_block(&wrong, CedLanes::Three);
+        let reading = decode_ced_block(&wrong, HdmiLanes::Three);
         assert!(matches!(
             reading.warnings(),
             [
@@ -364,9 +405,9 @@ mod tests {
 
     #[test]
     fn readings_compare_and_print_only_their_warnings() {
-        let clean = decode_ced_block(&block(VALID_LANES, CedLanes::Four), CedLanes::Four);
-        let again = decode_ced_block(&block(VALID_LANES, CedLanes::Four), CedLanes::Four);
-        let warned = decode_ced_block(&block(VALID_LANES, CedLanes::Three), CedLanes::Three);
+        let clean = decode_ced_block(&block(VALID_LANES, HdmiLanes::Four), HdmiLanes::Four);
+        let again = decode_ced_block(&block(VALID_LANES, HdmiLanes::Four), HdmiLanes::Four);
+        let warned = decode_ced_block(&block(VALID_LANES, HdmiLanes::Three), HdmiLanes::Three);
         assert_eq!(clean, again);
         assert_ne!(clean.clone(), warned);
         let mut printed = DebugBuf::default();
@@ -402,22 +443,6 @@ mod tests {
             slot.copy_from_slice(s.as_bytes());
             self.len = end;
             Ok(())
-        }
-    }
-
-    #[test]
-    fn lanes_from_every_rate() {
-        let expected = [
-            (FrlRate::NotSupported, CedLanes::Three),
-            (FrlRate::Rate3Gbps3Lanes, CedLanes::Three),
-            (FrlRate::Rate6Gbps3Lanes, CedLanes::Three),
-            (FrlRate::Rate6Gbps4Lanes, CedLanes::Four),
-            (FrlRate::Rate8Gbps4Lanes, CedLanes::Four),
-            (FrlRate::Rate10Gbps4Lanes, CedLanes::Four),
-            (FrlRate::Rate12Gbps4Lanes, CedLanes::Four),
-        ];
-        for (rate, lanes) in expected {
-            assert_eq!(CedLanes::from(rate), lanes, "{rate:?}");
         }
     }
 }

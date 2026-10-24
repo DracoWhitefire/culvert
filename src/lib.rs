@@ -25,7 +25,7 @@ pub use error::{ProtocolError, ScdcError};
 /// The transport `Scdc<T>` is generic over, re-exported from `hdmi-hal`.
 pub use hdmi_hal::scdc::ScdcTransport;
 pub use register::{
-    CedCount, CedCounters, CedLanes, CedReading, CedWarning, ClearableUpdateFlags, Config0,
-    FfeLevels, FrlConfig, FrlRate, LtpReq, LtpRequests, RsCorrectionCount, ScramblerStatus,
+    CedCount, CedCounters, CedReading, CedWarning, ClearableUpdateFlags, Config0, FfeLevels,
+    FrlConfig, FrlRate, HdmiLanes, LtpReq, LtpRequests, RsCorrectionCount, ScramblerStatus,
     SourceTestConfig, StatusFlags, TmdsConfig, UpdateFlags,
 };

@@ -1,15 +1,16 @@
-//! Torn CED reads (review B13 of the FRL rework).
+//! Torn CED reads.
 //!
 //! A sink's lane 0 counter that ticks while it is read: read one register at a time, its
 //! low byte comes from one value and its high byte from the next, so 0x00FF ticking to
 //! 0x0100 reads back as 0x01FF, a value the sink never held. The checksum at 0x56, which
-//! the sink keeps correct for its current value, catches it; a block read in one
-//! transaction, during which the sink holds its registers still, avoids it.
+//! the sink keeps correct for its current value, catches it. A block read avoids it only
+//! on a sink that holds its registers still during the transaction, which `Block` models;
+//! the `read_block` contract leaves that to the sink.
 
 use core::cell::Cell;
 use core::convert::Infallible;
 
-use culvert::{CedLanes, CedWarning, Scdc};
+use culvert::{CedWarning, HdmiLanes, Scdc};
 use hdmi_hal::scdc::{ScdcTransport, read_block_bytewise};
 
 /// Lane 0's counter, the sink's CED registers derived from it: lanes 1–3 have no valid
@@ -55,8 +56,9 @@ impl ScdcTransport for PerByte {
     }
 }
 
-/// A transport that reads a block in one transaction, during which the sink holds its
-/// registers still; the counter ticks after every transaction.
+/// A transport that reads a block in one transaction, from a snapshotting sink: one that
+/// holds its registers still during the transaction (the contract does not promise it).
+/// The counter ticks after every transaction.
 struct Block(Counter);
 
 impl ScdcTransport for Block {
@@ -88,7 +90,7 @@ fn counter(start: u16) -> Counter {
 #[test]
 fn a_torn_read_one_register_at_a_time_is_caught_by_the_checksum() {
     let reading = Scdc::new(PerByte(counter(0x00FF)))
-        .read_ced(CedLanes::Three)
+        .read_ced(HdmiLanes::Three)
         .unwrap();
     // The value the sink never held, still decoded, with the warning next to it.
     assert_eq!(reading.counters.lane0.map(|c| c.value()), Some(0x01FF));
@@ -99,29 +101,31 @@ fn a_torn_read_one_register_at_a_time_is_caught_by_the_checksum() {
 }
 
 #[test]
-fn a_block_read_in_one_transaction_is_not_torn() {
+fn a_block_read_from_a_snapshotting_sink_is_not_torn() {
     let reading = Scdc::new(Block(counter(0x00FF)))
-        .read_ced(CedLanes::Three)
+        .read_ced(HdmiLanes::Three)
         .unwrap();
     assert_eq!(reading.counters.lane0.map(|c| c.value()), Some(0x00FF));
     assert_eq!(reading.warnings(), []);
 }
 
 #[test]
-fn a_counter_ticking_between_bytes_never_passes_the_checksum() {
+fn a_counter_ticking_by_one_per_byte_never_passes_the_checksum() {
     // Read a byte at a time, the bytes come from different values: low byte at `c`, high
     // byte at `c + 1`, checksum at `c + 6`. Their sum is −6 or −7 (mod 256), never zero,
-    // so every such read warns, carry or not; a block read never does.
+    // so every such read warns, carry or not; a block read from a snapshotting sink never
+    // does. Only for one tick per byte: a larger jump can pass (low byte at 0x00FF, high at
+    // 0x0100, checksum at 0x01FF sum to zero).
     for start in (0..0x7F00).step_by(0x3B) {
         let per_byte = Scdc::new(PerByte(counter(start)))
-            .read_ced(CedLanes::Three)
+            .read_ced(HdmiLanes::Three)
             .unwrap();
         assert!(
             matches!(per_byte.warnings(), [CedWarning::ChecksumMismatch { .. }]),
             "per byte from {start:#06x}"
         );
         let block = Scdc::new(Block(counter(start)))
-            .read_ced(CedLanes::Three)
+            .read_ced(HdmiLanes::Three)
             .unwrap();
         assert_eq!(block.counters.lane0.map(|c| c.value()), Some(start));
         assert_eq!(block.warnings(), [], "block from {start:#06x}");

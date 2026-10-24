@@ -4,6 +4,10 @@ use display_types::HdmiForumFrl;
 
 // Re-export for use in the public API.
 pub use display_types::HdmiForumFrl as FrlRate;
+/// The link's data lanes, re-exported from `display-types`: three for TMDS and 3-lane FRL,
+/// four for 4-lane FRL ([`FrlRate::lanes`]). [`Scdc::read_ced`](crate::Scdc::read_ced) takes
+/// it to know what the CED checksum covers: 0x50–0x56 with `Three`, 0x50–0x58 with `Four`.
+pub use display_types::HdmiLanes;
 
 /// Configuration written to `TMDS_Config` (0x20).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -330,11 +334,12 @@ impl StatusFlags {
 pub struct UpdateFlags {
     /// Bit 0: general status has changed.
     pub status_update: bool,
-    /// Bit 1: the sink sets it when character errors occur, and it stays set until the
-    /// source clears it: a hint that errors happened since the last clear, not that they
-    /// are happening now. A sink may never set it: read the counters
-    /// ([`Scdc::read_ced`](crate::Scdc::read_ced)) regularly, and clear the flag before
-    /// reading them ([`Scdc::clear_update_flags`](crate::Scdc::clear_update_flags)).
+    /// Bit 1 (`CED_Update`): set by the sink about the character error counters, and kept
+    /// until the source clears it. A hint at most: it has been seen set with every count
+    /// zero, so a set flag does not mean there are counts, and a sink may never set it.
+    /// Read the counters ([`Scdc::read_ced`](crate::Scdc::read_ced)) regularly, and clear
+    /// the flag before reading them
+    /// ([`Scdc::clear_update_flags`](crate::Scdc::clear_update_flags)).
     pub ced_update: bool,
     /// Bit 2: read request test, owned by the sink. The source does not clear it, so
     /// [`ClearableUpdateFlags`] has no field for it.
@@ -345,9 +350,9 @@ pub struct UpdateFlags {
     pub frl_start: bool,
     /// Bit 5: the per-lane link training pattern requests have changed.
     pub flt_update: bool,
-    /// Bit 6: as `ced_update`, for Reed-Solomon corrections: latched until the source
-    /// clears it, and possibly never set, so read the count
-    /// ([`Scdc::read_rs_correction`](crate::Scdc::read_rs_correction)) regularly.
+    /// Bit 6 (`RSED_Update`): as `ced_update`, for the Reed-Solomon correction count: kept
+    /// until the source clears it, a hint at most, and possibly never set, so read the
+    /// count ([`Scdc::read_rs_correction`](crate::Scdc::read_rs_correction)) regularly.
     pub rsed_update: bool,
 }
 
@@ -406,7 +411,8 @@ impl UpdateFlags {
 pub struct ClearableUpdateFlags {
     /// Bit 0: general status has changed.
     pub status_update: bool,
-    /// Bit 1: CED counters have been updated.
+    /// Bit 1: `CED_Update`, the character error counters' flag (see
+    /// [`UpdateFlags::ced_update`]).
     pub ced_update: bool,
     /// Bit 3: the sink has written `Source_Test_Configuration` (0x35).
     pub source_test_update: bool,
@@ -414,7 +420,8 @@ pub struct ClearableUpdateFlags {
     pub frl_start: bool,
     /// Bit 5: the per-lane link training pattern requests have changed.
     pub flt_update: bool,
-    /// Bit 6: the Reed-Solomon correction count has been updated.
+    /// Bit 6: `RSED_Update`, the Reed-Solomon correction count's flag (see
+    /// [`UpdateFlags::rsed_update`]).
     pub rsed_update: bool,
 }
 
@@ -514,29 +521,6 @@ impl CedCounters {
     }
 }
 
-/// The lanes whose counters the CED registers hold: three for TMDS and 3-lane FRL, four
-/// for 4-lane FRL. It decides what the checksum at `ERR_DET_Checksum` (0x56) covers.
-///
-/// Build it from the link's rate with `From<FrlRate>`: [`FrlRate::NotSupported`] (TMDS)
-/// and the 3-lane rates are `Three`, the 4-lane rates `Four`. Exhaustive: a link has three
-/// or four lanes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum CedLanes {
-    /// Lanes 0–2: the checksum covers 0x50–0x56.
-    Three,
-    /// Lanes 0–3: the checksum covers 0x50–0x58.
-    Four,
-}
-
-impl From<FrlRate> for CedLanes {
-    fn from(rate: FrlRate) -> Self {
-        match rate.lanes() {
-            None | Some(display_types::FrlLanes::Three) => Self::Three,
-            Some(display_types::FrlLanes::Four) => Self::Four,
-        }
-    }
-}
-
 /// A non-fatal anomaly in a CED read, returned with the decoded counters in
 /// [`CedReading`].
 ///
@@ -556,7 +540,7 @@ pub enum CedWarning {
         /// The checksum byte read, `ERR_DET_Checksum` (0x56).
         found: u8,
     },
-    /// With [`CedLanes::Three`], lane 3's validity bit (0x58 bit 7) is set: the sink
+    /// With [`HdmiLanes::Three`], lane 3's validity bit (0x58 bit 7) is set: the sink
     /// reports a count for a lane not in use. [`CedCounters::lane3`] stays `None`, as the
     /// checksum does not cover it; the count is here.
     #[non_exhaustive]
@@ -607,11 +591,20 @@ impl CedReading {
         }
     }
 
-    /// Adds a warning. Each kind occurs at most once per read, so a slot is always free.
+    /// Adds a warning. Each kind occurs at most once per read, so a slot is always free;
+    /// a test ties [`MAX_CED_WARNINGS`] to the number of kinds. Were it not, that is a bug:
+    /// a debug build panics, a release build keeps the warnings already found.
     pub(crate) fn push(&mut self, warning: CedWarning) {
-        if let Some(slot) = self.warnings.get_mut(self.len) {
-            *slot = warning;
-            self.len += 1;
+        match self.warnings.get_mut(self.len) {
+            Some(slot) => {
+                *slot = warning;
+                self.len += 1;
+            }
+            // Unreachable while the test holds: here `len` is `MAX_CED_WARNINGS`.
+            None => debug_assert!(
+                self.len < MAX_CED_WARNINGS,
+                "more warnings than kinds: {warning:?}"
+            ),
         }
     }
 
@@ -646,6 +639,41 @@ impl Eq for CedReading {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_reading_holds_one_warning_of_each_kind() {
+        let every_kind = [
+            CedWarning::ChecksumMismatch {
+                expected: 1,
+                found: 2,
+            },
+            CedWarning::UnusedLaneReported {
+                count: CedCount::new(0x8003),
+            },
+        ];
+        // Exhaustive, unlike a match outside the crate: a new kind fails to compile here
+        // until it is added to `every_kind`, whose length is `MAX_CED_WARNINGS`.
+        for warning in &every_kind {
+            match warning {
+                CedWarning::ChecksumMismatch { .. } | CedWarning::UnusedLaneReported { .. } => {}
+            }
+        }
+        let mut reading = CedReading::new(CedCounters::new(None, None, None, None));
+        for warning in every_kind {
+            reading.push(warning);
+        }
+        assert_eq!(reading.warnings(), every_kind);
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "more warnings than kinds")]
+    fn a_warning_past_one_of_each_kind_is_a_bug() {
+        let mut reading = CedReading::new(CedCounters::new(None, None, None, None));
+        for _ in 0..=MAX_CED_WARNINGS {
+            reading.push(UNUSED);
+        }
+    }
 
     #[test]
     fn ced_count_masks_validity_bit() {
