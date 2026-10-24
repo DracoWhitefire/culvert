@@ -46,6 +46,33 @@ Each register group has tests covering:
 The `register` module also contains unit tests for the `CedCount` newtype (validity bit
 masking, 15-bit value preservation) and `UpdateFlags::new` field ordering.
 
+`codec` tests `decode_ced_block` without a transport: the checksum valid and invalid for
+three and four lanes, which bytes each lane count covers, `expected` being the checksum
+that makes a block valid, the 0x00FF → 0x0100 torn read, lane 3 reported at three lanes,
+both warnings at once and in order, readings comparing and printing only their warnings,
+and `CedLanes` from every rate. `TestTransport` records a `read_block` as one
+`Op::ReadBlock(reg, len)`, counted once by `failing_after` (an empty one not at all), so a
+test pins each multi-register method to one transaction.
+
+### Torn reads (`tests/torn_reads.rs`)
+
+The review that found the tearing, as regression tests: a sink whose lane 0 counter ticks
+while it is read, with a checksum kept correct for its current value. Read one register at
+a time, 0x00FF ticking to 0x0100 reads back as 0x01FF with a `ChecksumMismatch`; read as a
+block in one transaction, during which the sink holds its registers still, it is 0x00FF
+with no warning. A sweep over starting counts shows a counter ticking between bytes never
+passes the checksum, and a block read always returns the starting count.
+
+### Fuzzing (`fuzz/`)
+
+Two `cargo fuzz` targets run the decoding against arbitrary register bytes: `status_flags`
+(0x40–0x42) and `ced` (0x50–0x58, a tenth byte picking three or four lanes). `ced` checks
+that `read_ced` decodes what `codec::decode_ced_block` does, that a checksum warning comes
+exactly when the covered bytes do not sum to zero, that lane 3 is never a count at three
+lanes, and that a read has at most two warnings. The corpus seeds name what they cover
+(valid blocks for three and four lanes, a torn lane 0, an unused lane 3, a 3-lane
+checksum read as four lanes).
+
 ### Integration tests (`tests/scdc.rs`)
 
 The integration tests use `SimulatedScdc`, a separate infallible transport
@@ -65,8 +92,8 @@ When compiled with `--features plumbob`, two more sets of tests run:
 - **Unit tests** call each method through the `plumbob::ScdcClient` trait against
   `TestTransport` and assert on register bits: every request value (and 0x9 passed on
   as `LtpReq::Reserved`), each flag clear writing only its own bit, `Config_1` encoding
-  (including FRL off), culvert's FFE-levels check, CED validity bits, and transport errors
-  from every method.
+  (including FRL off), culvert's FFE-levels check, and transport errors from every
+  method.
 - **End-to-end tests** run plumbob's `FrlTrainer` through `Scdc<T>` against a sink
   simulated at the register level: `FLT_ready` after N reads, request nibbles posted in
   `Status_Flags_1/2` with `FLT_update`, write-1-to-clear `Update_0`, and `Config_1`

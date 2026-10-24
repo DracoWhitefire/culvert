@@ -7,7 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking changes
+
+- **`read_ced` takes the link's lane count and returns a `CedReading`**:
+  `read_ced(lanes: CedLanes) -> Result<CedReading, ScdcError<_>>`. It reads the CED block
+  (0x50–0x58) with one `read_block` and checks the checksum at 0x56, over 0x50–0x56 for
+  three lanes (TMDS and 3-lane FRL) and 0x50–0x58 for four. Reading byte by byte, a counter
+  the sink updated between its two bytes could read back as a value it never held (0x00FF
+  ticking to 0x0100 as 0x01FF), and nothing said so. A mismatch is a `CedWarning` next to
+  the counters, which are decoded anyway, not an error; so is a count for lane 3 at three
+  lanes, which stays `None`. Migration: `read_ced(CedLanes::from(rate))` (TMDS:
+  `CedLanes::Three`) and `reading.counters` where the counters were; decide what a warning
+  means for you.
+- **`codec::CED_REGISTERS` and `codec::decode_ced` are removed**, the unchecked path; use
+  `codec::CED_BLOCK_START`, `CED_BLOCK_LEN` and `decode_ced_block`.
+- **With the `plumbob` feature, `Scdc<T>` no longer implements a `read_ced`**: plumbob's
+  `ScdcClient` no longer has one (training never read the counters). The `From`
+  conversions of `CedCount` and `CedCounters` to plumbob's types are gone with it. Read
+  CED from `Scdc<T>` directly.
+- **Every `ScdcTransport` must implement `read_block`**: culvert requires the hdmi-hal
+  release where it is required. A transport that cannot read a block in one transaction
+  implements it with `hdmi_hal::scdc::read_block_bytewise`.
+
+### Added
+
+- **`CedLanes`** (`Three`, `Four`, `From<FrlRate>`), **`CedReading`** (`counters`, and its
+  warnings through `warnings()` and `iter_warnings()`, stored privately) and
+  **`CedWarning`** (`ChecksumMismatch { expected, found }`, `UnusedLaneReported { count }`).
+- **`codec::decode_ced_block`**, `codec::CED_BLOCK_START` and `codec::CED_BLOCK_LEN`.
+
 ### Changed
+
+- **`read_ltp_requests` and `read_rs_correction` read their two registers with one
+  `read_block`**, one transaction on a transport that can burst-read, so a sink update
+  cannot fall between them. Neither has a checksum, so the transaction is their only
+  protection against a torn read.
+- **The CED and RS counters' documentation says how they behave**, as far as public
+  sources show: they saturate at 0x7FFF; a sink may clear them when read, so a lower
+  reading is a reset; count afresh after retraining, a rate change or a hot plug;
+  `CED_Update` / `RSED_Update` mean errors are occurring and may never be set, so read the
+  counters regularly; a lane without a valid count is unknown, not zero.
+  `clear_update_flags` says to clear only the flags read.
 
 - **Part of Ashlar** — the README now opens with a block naming the
   [Ashlar](https://ashlar-display.org) stack and linking the other crates in it. Keywords
@@ -24,8 +64,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the sink in FRL. `doc/architecture.md` now shows an `ScdcClient` that wraps `Scdc<T>`,
   waits in those two methods and forwards the rest, and maps plumbob's "Stopping early"
   rule onto it.
-- `read_rs_correction`'s documentation says the count can tear (two separate reads), as
-  `read_ced`'s does.
 - The README and `doc/architecture.md` use `cargo add` instead of the stale `"0.1"`
   version pins.
 

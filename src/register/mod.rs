@@ -330,7 +330,10 @@ impl StatusFlags {
 pub struct UpdateFlags {
     /// Bit 0: general status has changed.
     pub status_update: bool,
-    /// Bit 1: CED counters have been updated; re-read the `ERR_DET` registers.
+    /// Bit 1: character errors are occurring. Sinks re-evaluate it about once a second
+    /// (one receiver sets it when a counter rises by 4 or more in a second, or first
+    /// saturates), and a sink may never set it: read the counters
+    /// ([`Scdc::read_ced`](crate::Scdc::read_ced)) regularly rather than only after it.
     pub ced_update: bool,
     /// Bit 2: read request test, owned by the sink. The source does not clear it, so
     /// [`ClearableUpdateFlags`] has no field for it.
@@ -341,7 +344,9 @@ pub struct UpdateFlags {
     pub frl_start: bool,
     /// Bit 5: the per-lane link training pattern requests have changed.
     pub flt_update: bool,
-    /// Bit 6: the Reed-Solomon correction count has been updated.
+    /// Bit 6: Reed-Solomon corrections are occurring; as `ced_update`, re-evaluated about
+    /// once a second and possibly never set, so read the count
+    /// ([`Scdc::read_rs_correction`](crate::Scdc::read_rs_correction)) regularly.
     pub rsed_update: bool,
 }
 

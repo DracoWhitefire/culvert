@@ -40,7 +40,7 @@ cargo add culvert
 Wrap your transport in `Scdc` and call typed methods:
 
 ```rust
-use culvert::{Scdc, TmdsConfig, FrlConfig, FrlRate, FfeLevels, ClearableUpdateFlags};
+use culvert::{Scdc, TmdsConfig, FrlConfig, FrlRate, FfeLevels, ClearableUpdateFlags, CedLanes};
 
 let mut scdc = Scdc::new(transport);
 
@@ -73,9 +73,13 @@ if updates.flt_update {
     }
 }
 
-// Read per-lane character error counts
-let ced = scdc.read_ced()?;
-if let Some(count) = ced.lane0 {
+// Read per-lane character error counts, the CED block in one read, checksum checked
+let reading = scdc.read_ced(CedLanes::from(FrlRate::Rate12Gbps4Lanes))?;
+for warning in reading.iter_warnings() {
+    // e.g. a checksum mismatch: the counts may be torn; read again or distrust them
+    println!("CED warning: {warning:?}");
+}
+if let Some(count) = reading.counters.lane0 {
     println!("lane 0 errors: {}", count.value());
 }
 ```
@@ -105,13 +109,13 @@ the transport; [`doc/architecture.md`](doc/architecture.md) shows how.
 | Source test configuration | 0x35        | `read_source_test_config` |
 | Status flags              | 0x40        | `read_status_flags` |
 | LTP requests              | 0x41–0x42   | `read_ltp_requests` |
-| Character Error Detection | 0x50–0x55, 0x57–0x58 | `read_ced` |
+| Character Error Detection | 0x50–0x58 (checksum at 0x56) | `read_ced` |
 | RS correction count       | 0x59–0x5A   | `read_rs_correction` |
 
 The register map and its sources are described in
 [`doc/architecture.md`](doc/architecture.md#the-scdc-register-map). Registers not yet
-covered (the CED checksum, manufacturer identification) are
-documented in [`doc/roadmap.md`](doc/roadmap.md).
+covered (manufacturer identification, among others) are documented in
+[`doc/roadmap.md`](doc/roadmap.md).
 
 ## Features
 

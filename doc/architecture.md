@@ -30,8 +30,8 @@ Culvert covers:
 - FRL training primitives: writing `Config_1` (FRL rate, FFE levels) and `Config_0`,
   reading `Status_Flags_0` (`FLT_Ready`, lane lock), the per-lane `LTP` requests and
   `Source_Test_Configuration`, reading and clearing `Update_0` (`FLT_Update`, `FRL_Start`),
-- CED reporting: reading per-lane error counters from `ERR_DET` registers and the
-  Reed-Solomon correction count,
+- CED reporting: reading the per-lane error counters (the `ERR_DET` block, in one
+  transaction, with its checksum checked) and the Reed-Solomon correction count,
 - version negotiation: reading `Sink_Version`, writing `Source_Version`,
 - structured errors: transport errors and protocol-level violations (e.g. an undefined
   link training pattern request from the sink) surfaced as distinct variants.
@@ -82,7 +82,9 @@ see [Sources](#sources) for how each was established.
   `Status_Update` (bit 0), `CED_Update` (bit 1), `RR_Test` (bit 2),
   `Source_Test_Update` (bit 3), `FRL_Start` (bit 4), `FLT_Update` (bit 5),
   `RSED_Update` (bit 6). The source reads and then clears these to detect sink-side
-  state changes without polling every status register on every pass. culvert treats
+  state changes without polling every status register on every pass. `CED_Update` and
+  `RSED_Update` mean errors are occurring, re-evaluated by the sink about once a second,
+  and a sink may never set them (see "Character Error Detection" below). culvert treats
   `RR_Test` as a flag the source must not clear: `clear_update_flags` takes
   `ClearableUpdateFlags`, which has no field for it (see "`RR_Test` is not cleared"
   below — a provisional decision resting on one source).
@@ -122,11 +124,35 @@ see [Sources](#sources) for how each was established.
 - `ERR_DET_0_L/H` (0x50/0x51), `ERR_DET_1_L/H` (0x52/0x53), `ERR_DET_2_L/H`
   (0x54/0x55) — per-lane 15-bit error counters with a validity bit (bit 7) in the high
   byte. Counters are read as a pair (low + high byte) to form a single `u16` value.
-- `ERR_DET_Checksum` (0x56) — checksum over the CED registers.
+- `ERR_DET_Checksum` (0x56) — makes the bytes it covers sum to zero (mod 256): 0x50–0x56
+  for TMDS and 3-lane FRL, 0x50–0x58 (lane 3 included) for 4-lane FRL.
 - `ERR_DET_3_L/H` (0x57/0x58) — lane 3 counter, same format; only populated in FRL
   4-lane mode.
 - `RS_Correction_L/H` (0x59/0x5A) — Reed-Solomon correction count (FRL), same format
-  as a CED counter: validity bit (bit 7) in the high byte and a 15-bit count.
+  as a CED counter: validity bit (bit 7) in the high byte and a 15-bit count. No checksum
+  covers it.
+
+`read_ced` reads 0x50–0x58 as one block and checks the checksum for the link's lane count
+(`CedLanes`); a mismatch is a warning, not an error (see "Error Handling"). The coverage
+follows three implementations that agree: the Amlogic transmitter drivers, the Linux
+kernel's SCDC helper (`drm_scdc_helper.c`, 2026) and edid-decode; a patent of LG's
+supports the TMDS range. How the counters behave, from what public sources show (no
+source defines all of it):
+
+- They accumulate and saturate at 0x7FFF (a receiver's flag logic; an Intel errata calls
+  7FFFh "full").
+- They reset on power-off, on a hot plug or when the sink clears its SCDC registers. No
+  source ties a reset to retraining or a rate change.
+- Whether reading clears them is unknown: sources disagree. culvert's documentation
+  therefore tells a caller to treat a reading lower than the previous one as a reset, and
+  to count afresh after retraining, a rate change or a hot plug, which is right either
+  way.
+- `CED_Update` / `RSED_Update` mean errors are occurring, re-evaluated about once a second
+  (one receiver: a counter rising by 4 or more in a second, or first saturating). A
+  receiver has shipped that never set `CED_Update` (an Intel errata), so a caller reads
+  the counters regularly rather than only after the flag.
+- No public source defines the validity bit beyond "valid"; a lane without it is `None`,
+  unknown rather than zero.
 
 ### Sources
 
@@ -245,7 +271,7 @@ impl<T: ScdcTransport> Scdc<T> {
     pub fn clear_update_flags(&mut self, flags: ClearableUpdateFlags) -> Result<(), ScdcError<T::Error>>;
 
     // CED
-    pub fn read_ced(&mut self) -> Result<CedCounters, ScdcError<T::Error>>;
+    pub fn read_ced(&mut self, lanes: CedLanes) -> Result<CedReading, ScdcError<T::Error>>;
     pub fn read_rs_correction(&mut self) -> Result<Option<RsCorrectionCount>, ScdcError<T::Error>>;
 }
 ```
@@ -253,23 +279,26 @@ impl<T: ScdcTransport> Scdc<T> {
 `Scdc<T>` holds no state beyond the transport. Register reads and writes are direct and
 stateless from the client's perspective; any sequencing state lives in the caller.
 
-Methods map to register groups, not necessarily individual registers. Two methods span
-multiple registers in a single logical operation:
+Methods map to register groups, not necessarily individual registers. Three methods span
+multiple registers, each read with one `ScdcTransport::read_block`:
 
-- `read_ltp_requests()` reads `Status_Flags_1` (0x41) and `Status_Flags_2` (0x42) and
+- `read_ltp_requests()` reads `Status_Flags_1` and `Status_Flags_2` (0x41–0x42) and
   returns the pattern requested for each of the four lanes as one `LtpRequests` struct.
   The sink updates all lanes' requests together and signals the change once through
   `FLT_Update`.
-- `read_ced()` reads the four ERR_DET low/high byte pairs (0x50–0x55, 0x57–0x58) in a
-  single pass and returns one `CedCounters` struct.
+- `read_ced(lanes)` reads the CED block (0x50–0x58: the four counters and the checksum)
+  and returns a `CedReading`: the counters, with a warning if the checksum does not match
+  or lane 3 reports a count at three lanes.
+- `read_rs_correction()` reads `RS_Correction_L/H` (0x59–0x5A).
 
-In both cases the method performs its reads back to back with no intervening writes or
-protocol state changes. Each register is a separate single-byte transaction, so a value
-the sink updates between two reads can be torn; reading the block in one transaction
-through `ScdcTransport::read_block`, and verifying the CED checksum, is planned (see the
-roadmap). This
-is distinct from the multi-step sequences (write rate, poll for ready, handle pattern
-request) that belong in the link training crate.
+`hdmi-hal`'s `read_block` contract makes each one DDC transaction on a transport that
+can burst-read, so a counter the sink updates cannot be read half before and half after
+the update; a transport that reads one register at a time (`read_block_bytewise`) says
+so. The CED checksum catches most torn CED reads either way; the LTP requests and the RS
+count have no checksum, so for them the one transaction is the only protection. The
+review that found the tearing (0x00FF ticking to 0x0100 read back as 0x01FF) is kept as
+regression tests, `tests/torn_reads.rs`. None of this is a multi-step sequence (write
+rate, poll for ready, handle pattern request): those belong in the link training crate.
 
 ---
 
@@ -277,14 +306,16 @@ request) that belong in the link training crate.
 ## The `codec` Module
 
 `culvert::codec` holds the register map without any I/O: the address of every register
-culvert accesses (plus the CED checksum), `CED_REGISTERS` for the multi-register CED read,
-and one function per register that encodes a typed value into a byte or decodes bytes into
-a typed value — `encode_config_1`, `decode_ltp_requests`, `decode_ced`, and so on.
+culvert accesses, `CED_BLOCK_START` and `CED_BLOCK_LEN` for the CED block, and one
+function per register that encodes a typed value into a byte or decodes bytes into a typed
+value — `encode_config_1`, `decode_ltp_requests`, `decode_ced_block`, and so on.
 Protocol checks live there too: `encode_config_1` rejects FFE levels above the rate's
 maximum as a `ProtocolError`. Decoding judges nothing it cannot judge: `decode_ltp_requests`
 decodes every value, the undefined ones (0x9–0xD) as `LtpReq::Reserved(value)`, because
 whether one matters depends on the lanes in use, which only the link training layer
-knows.
+knows. Nor does it withhold anything: `decode_ced_block` checks the checksum and returns
+the decoded counters with a typed warning when it fails, leaving the decision to the
+caller.
 
 `Scdc<T>`'s methods only perform the reads and writes and hand the bytes to `codec`.
 `culvert-async`'s client does the same with `.await`, so the sync and async clients share
@@ -407,9 +438,28 @@ pub struct CedCounters {
     pub lane2: Option<CedCount>,
     pub lane3: Option<CedCount>,   // None in TMDS / 3-lane FRL mode
 }
+
+/// The lanes the CED block holds counters for: what the checksum covers.
+/// `From<FrlRate>`: `NotSupported` (TMDS) and the 3-lane rates are `Three`.
+pub enum CedLanes { Three, Four }
+
+/// One CED read: the counters, decoded whatever the warnings say, and the warnings,
+/// stored privately (`warnings()`, `iter_warnings()`).
+pub struct CedReading {
+    pub counters: CedCounters,
+    // private: the warnings
+}
+
+pub enum CedWarning {
+    /// The covered bytes do not sum to zero: most likely a torn read.
+    ChecksumMismatch { expected: u8, found: u8 },
+    /// Lane 3 reports a count with `CedLanes::Three`; `lane3` stays `None`.
+    UnusedLaneReported { count: CedCount },
+}
 ```
 
-All output structs are `#[non_exhaustive]` for forward compatibility.
+All output structs are `#[non_exhaustive]` for forward compatibility, and so are
+`CedWarning` and each of its variants. `CedLanes` is not: a link has three or four lanes.
 
 ---
 
@@ -442,6 +492,18 @@ unexpected sink behaviour reaches the caller as data, not as an error.
 
 Both enums are `#[non_exhaustive]` at the type level, consistent with the rest of the
 stack. Tuple variants are plain — callers can match `UnknownFrlRate(value)` without `..`.
+
+**Warnings.** One read finds something wrong without refusing anything: the CED checksum.
+A mismatch is a `CedWarning` in the `CedReading`, next to counters decoded anyway, never
+an error, following the stack's rule for checksums ("a checksum mismatch on decode is a
+structured warning, not an error — the decoded struct is still returned and the caller
+decides"), which cartouche follows for InfoFrames. An error would leave no counts at all
+for a sink whose checksum does not conform, and the decoding layer judges nothing: whether
+to distrust the counts, or read again, is the caller's. The warnings are stored privately
+(`warnings()`, `iter_warnings()`), as the stack's warning storage rule requires, so a
+later warning can be added without breaking anything; at most one of each kind occurs per
+read. `ProtocolError` and `ScdcError` keep their meaning: requests culvert refuses, and
+transport failures.
 
 `ScdcError` is `#[non_exhaustive]` to allow future variants without a breaking change.
 
@@ -492,10 +554,12 @@ Each `ScdcClient` method calls one culvert method:
 | `read_source_test_config` | `read_source_test_config` | `Source_Test_Configuration` (0x35) |
 | `write_config_0_defaults` | `write_config_0(Config0::default())` | `Config_0` (0x30) |
 | `write_frl_config` | `write_frl_config` | `Config_1` (0x31) |
-| `read_ced` | `read_ced` | `ERR_DET` (0x50–0x55, 0x57–0x58) |
+
+plumbob's `ScdcClient` has no CED method: training never reads the counters, so a link
+health monitor reads them from `Scdc<T>` directly (`read_ced`, `read_rs_correction`).
 
 `From` impls in the feature-gated module convert culvert's types to plumbob's owned types
-(`LtpReq`, `LtpRequests`, `UpdateFlags`, `SourceTestConfig`, `CedCount`, `CedCounters`)
+(`LtpReq`, `LtpRequests`, `UpdateFlags`, `SourceTestConfig`)
 and plumbob's `ClearableUpdateFlags` and `FrlConfig` back for the writes. culvert's own types are
 unchanged, so culvert means the same thing with or without the feature. plumbob's
 `ScdcClient` types mirror culvert's field for field (the same names, every field of each
@@ -534,7 +598,7 @@ impl<T: ScdcTransport> ScdcClient for Paced<T> {
         ScdcClient::read_update_flags(&mut self.0)
     }
 
-    // … the other six methods forward without waiting
+    // … the other five methods forward without waiting
 }
 ```
 
@@ -572,8 +636,8 @@ without the `plumbob` feature, for `thumbv7em-none-eabi`, a target without `std`
   so culvert remains independently usable without the link training layer as a dependency.
 - **Spec accuracy and completeness.** Every field culvert decodes is checked against the
   sources listed with the register map. No register is omitted because its consumer has
-  not been built yet; registers not wrapped yet (the CED checksum, `Update_1`,
-  `Test_Config_0`, manufacturer identification) are tracked on the roadmap.
+  not been built yet; registers not wrapped yet (`Update_1`, `Test_Config_0`,
+  manufacturer identification) are tracked on the roadmap.
 - **One register map.** Every address, bit position and protocol check is in `codec`,
   shared by the sync and async clients; the clients add only the I/O.
 - **Stateless client, stateful caller.** `Scdc<T>` holds no protocol state. Sequencing,

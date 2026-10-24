@@ -22,6 +22,12 @@ impl<T: ScdcTransport> Scdc<T> {
     /// set to `false` are left unchanged, and so is `RR_Test`, which the source does not
     /// clear ([`ClearableUpdateFlags`] has no field for it). To acknowledge every flag just
     /// read, pass [`UpdateFlags::clearable`].
+    ///
+    /// Clear only the flags read and acted on: the write touches no other bit, so a flag
+    /// the sink sets between the read and the clear stays set for the next read. For
+    /// `CED_Update` and `RSED_Update`, reading the counters and then clearing the flag is
+    /// fine: a sink re-evaluates them about once a second, so one cleared while errors
+    /// continue is set again.
     pub fn clear_update_flags(
         &mut self,
         flags: ClearableUpdateFlags,
