@@ -45,9 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The CED and RS counters' documentation says how they behave**, as far as public
   sources show: they saturate at 0x7FFF; a sink may clear them when read, so a lower
   reading is a reset; count afresh after retraining, a rate change or a hot plug;
-  `CED_Update` / `RSED_Update` mean errors are occurring and may never be set, so read the
-  counters regularly; a lane without a valid count is unknown, not zero.
-  `clear_update_flags` says to clear only the flags read.
+  `CED_Update` / `RSED_Update` are latched hints, set when errors occur and kept until the
+  source clears them, and may never be set, so read the counters regularly; a lane without
+  a valid count is unknown, not zero. `clear_update_flags` says to clear only the flags
+  read, and the CED and RS flags before reading the counters.
 
 - **Part of Ashlar** — the README now opens with a block naming the
   [Ashlar](https://ashlar-display.org) stack and linking the other crates in it. Keywords

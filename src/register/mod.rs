@@ -330,10 +330,11 @@ impl StatusFlags {
 pub struct UpdateFlags {
     /// Bit 0: general status has changed.
     pub status_update: bool,
-    /// Bit 1: character errors are occurring. Sinks re-evaluate it about once a second
-    /// (one receiver sets it when a counter rises by 4 or more in a second, or first
-    /// saturates), and a sink may never set it: read the counters
-    /// ([`Scdc::read_ced`](crate::Scdc::read_ced)) regularly rather than only after it.
+    /// Bit 1: the sink sets it when character errors occur, and it stays set until the
+    /// source clears it: a hint that errors happened since the last clear, not that they
+    /// are happening now. A sink may never set it: read the counters
+    /// ([`Scdc::read_ced`](crate::Scdc::read_ced)) regularly, and clear the flag before
+    /// reading them ([`Scdc::clear_update_flags`](crate::Scdc::clear_update_flags)).
     pub ced_update: bool,
     /// Bit 2: read request test, owned by the sink. The source does not clear it, so
     /// [`ClearableUpdateFlags`] has no field for it.
@@ -344,8 +345,8 @@ pub struct UpdateFlags {
     pub frl_start: bool,
     /// Bit 5: the per-lane link training pattern requests have changed.
     pub flt_update: bool,
-    /// Bit 6: Reed-Solomon corrections are occurring; as `ced_update`, re-evaluated about
-    /// once a second and possibly never set, so read the count
+    /// Bit 6: as `ced_update`, for Reed-Solomon corrections: latched until the source
+    /// clears it, and possibly never set, so read the count
     /// ([`Scdc::read_rs_correction`](crate::Scdc::read_rs_correction)) regularly.
     pub rsed_update: bool,
 }

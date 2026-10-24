@@ -24,10 +24,11 @@ impl<T: ScdcTransport> Scdc<T> {
     /// read, pass [`UpdateFlags::clearable`].
     ///
     /// Clear only the flags read and acted on: the write touches no other bit, so a flag
-    /// the sink sets between the read and the clear stays set for the next read. For
-    /// `CED_Update` and `RSED_Update`, reading the counters and then clearing the flag is
-    /// fine: a sink re-evaluates them about once a second, so one cleared while errors
-    /// continue is set again.
+    /// the sink sets between the read and the clear stays set for the next read.
+    /// `CED_Update` and `RSED_Update` latch until cleared; clear them before reading the
+    /// counters, so an error after the clear sets the flag again and its count is in the
+    /// read. Read first and clear after, and a flag set by errors in between is cleared
+    /// unseen (their counts are not lost: the counters keep them for the next read).
     pub fn clear_update_flags(
         &mut self,
         flags: ClearableUpdateFlags,

@@ -83,8 +83,8 @@ see [Sources](#sources) for how each was established.
   `Source_Test_Update` (bit 3), `FRL_Start` (bit 4), `FLT_Update` (bit 5),
   `RSED_Update` (bit 6). The source reads and then clears these to detect sink-side
   state changes without polling every status register on every pass. `CED_Update` and
-  `RSED_Update` mean errors are occurring, re-evaluated by the sink about once a second,
-  and a sink may never set them (see "Character Error Detection" below). culvert treats
+  `RSED_Update` are set when errors occur and stay set until the source clears them, and
+  a sink may never set them (see "Character Error Detection" below). culvert treats
   `RR_Test` as a flag the source must not clear: `clear_update_flags` takes
   `ClearableUpdateFlags`, which has no field for it (see "`RR_Test` is not cleared"
   below — a provisional decision resting on one source).
@@ -147,10 +147,19 @@ source defines all of it):
   therefore tells a caller to treat a reading lower than the previous one as a reset, and
   to count afresh after retraining, a rate change or a hot plug, which is right either
   way.
-- `CED_Update` / `RSED_Update` mean errors are occurring, re-evaluated about once a second
-  (one receiver: a counter rising by 4 or more in a second, or first saturating). A
-  receiver has shipped that never set `CED_Update` (an Intel errata), so a caller reads
-  the counters regularly rather than only after the flag.
+- `CED_Update` / `RSED_Update` are set when errors occur and latch until the source
+  clears them (one receiver sets `CED_Update` when a counter rises by 4 or more in a
+  second, or first saturates, and never clears it itself). A receiver has shipped that
+  never set `CED_Update` (an Intel errata). So a caller reads the counters regularly, takes
+  the flag as a hint at most, and clears it before reading the counters, so an error after
+  the clear sets it again.
+
+Checked on hardware (October 2026; an LG ULTRAGEAR over amdgpu's DDC, TMDS, scrambled):
+the whole map read as 32-byte block reads matched byte reads on every stable register;
+the sink's checksum made 0x50–0x56 sum to zero with the three validity bits set
+(0x80 × 3 + 0x80); `CED_Update` was set with every count zero, and once cleared stayed
+clear for five seconds on the error-free link, which is what a latched flag does. The
+counts stayed zero throughout, so clear on read and tearing could not be observed.
 - No public source defines the validity bit beyond "valid"; a lane without it is `None`,
   unknown rather than zero.
 
