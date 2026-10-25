@@ -671,5 +671,7 @@ without the `plumbob` feature, for `thumbv7em-none-eabi`, a target without `std`
 - **No unsafe code.** `#![forbid(unsafe_code)]`.
 - **Attested releases.** Every release is published through a GitHub Actions workflow
   that signs the `.crate` package with [SLSA Build Level 2](https://slsa.dev) provenance.
-  Verify with `gh attestation verify <file> --repo DracoWhitefire/culvert`.
+  Verify with `gh attestation verify <file> --repo ashlar-display/culvert` (the release from
+  before the move to the `ashlar-display` organization: see "Verifying releases" in the
+  README).
 

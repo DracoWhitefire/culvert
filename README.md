@@ -1,6 +1,6 @@
 # culvert
 
-[![CI](https://github.com/DracoWhitefire/culvert/actions/workflows/ci.yml/badge.svg)](https://github.com/DracoWhitefire/culvert/actions/workflows/ci.yml)
+[![CI](https://github.com/ashlar-display/culvert/actions/workflows/ci.yml/badge.svg)](https://github.com/ashlar-display/culvert/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/culvert.svg)](https://crates.io/crates/culvert)
 [![docs.rs](https://docs.rs/culvert/badge.svg)](https://docs.rs/culvert)
 [![License: MPL-2.0](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](LICENSE)
@@ -176,11 +176,19 @@ Releases are built on GitHub Actions and attested with
 [GitHub CLI](https://cli.github.com/) and run:
 
 ```sh
-gh attestation verify culvert-X.Y.Z.crate --repo DracoWhitefire/culvert
+gh attestation verify culvert-X.Y.Z.crate --repo ashlar-display/culvert
+```
+
+The release from before the repository moved to the `ashlar-display` organization (0.2.0)
+was attested under its previous owner, and verifies against it:
+
+```sh
+gh attestation verify culvert-0.2.0.crate --owner DracoWhitefire \
+  --signer-repo DracoWhitefire/culvert
 ```
 
 The attested `.crate` is attached to each
-[GitHub release](https://github.com/DracoWhitefire/culvert/releases).
+[GitHub release](https://github.com/ashlar-display/culvert/releases).
 
 Releases from 0.2.0 are uploaded through crates.io
 [trusted publishing](https://rust-lang.github.io/rfcs/3691-trusted-publishing-cratesio.html): the publish
