@@ -6,9 +6,10 @@
 
 use core::convert::Infallible;
 use culvert::{
-    ClearableUpdateFlags, Config0, FfeLevels, FrlConfig, FrlRate, LtpReq, Scdc, TmdsConfig,
+    ClearableUpdateFlags, Config0, FfeLevels, FrlConfig, FrlRate, HdmiLanes, LtpReq, Scdc,
+    TmdsConfig,
 };
-use hdmi_hal::scdc::ScdcTransport;
+use hdmi_hal::scdc::{ScdcTransport, read_block_bytewise};
 
 // ── simulated transport ───────────────────────────────────────────────────────
 
@@ -40,6 +41,11 @@ impl ScdcTransport for SimulatedScdc {
     fn write(&mut self, reg: u8, value: u8) -> Result<(), Infallible> {
         self.regs[reg as usize] = value;
         Ok(())
+    }
+
+    fn read_block(&self, reg: u8, buf: &mut [u8]) -> Result<(), Infallible> {
+        // A register array has no bus transaction to read in one go: one `read` per byte.
+        read_block_bytewise(self, reg, buf)
     }
 }
 
@@ -213,25 +219,30 @@ fn read_ced_decodes_valid_and_invalid_lanes() {
     // Lane 2: valid, count = 0x7FFF (max)
     transport.set(0x54, 0xFF); // l2
     transport.set(0x55, 0xFF); // h2: valid + all counter bits set
-    // CED checksum sits between lane 2 and lane 3.
-    transport.set(0x56, 0x80);
+    // CED checksum sits between lane 2 and lane 3: 0x50–0x56 sum to zero.
+    transport.set(0x56, 0x4E);
     // Lane 3: validity bit not set → None
     transport.set(0x57, 0x00);
     transport.set(0x58, 0x00);
     let mut scdc = Scdc::new(transport);
 
-    let ced = scdc.read_ced().unwrap();
+    let reading = scdc.read_ced(HdmiLanes::Three).unwrap();
 
+    let ced = reading.counters;
     assert_eq!(ced.lane0.map(|c| c.value()), Some(0x0134));
     assert_eq!(ced.lane1, None);
     assert_eq!(ced.lane2.map(|c| c.value()), Some(0x7FFF));
     assert_eq!(ced.lane3, None);
+    assert_eq!(reading.warnings(), []);
 }
 
 #[test]
 fn read_ced_all_invalid() {
     let mut scdc = Scdc::new(SimulatedScdc::new());
-    let ced = scdc.read_ced().unwrap();
+    let reading = scdc.read_ced(HdmiLanes::Four).unwrap();
+    // All zero: no counts, and a valid checksum.
+    assert_eq!(reading.warnings(), []);
+    let ced = reading.counters;
     assert!(ced.lane0.is_none());
     assert!(ced.lane1.is_none());
     assert!(ced.lane2.is_none());

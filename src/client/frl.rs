@@ -51,17 +51,22 @@ impl<T: ScdcTransport> Scdc<T> {
     /// Reads the per-lane link training pattern requests from `Status_Flags_1` (0x41,
     /// lanes 0–1) and `Status_Flags_2` (0x42, lanes 2–3).
     ///
+    /// Both registers are one [`read_block`](ScdcTransport::read_block): one transaction,
+    /// so the transport does not split them; whether the sink holds them still during it is
+    /// up to the sink, and a transport that reads a register at a time
+    /// ([`read_block_bytewise`]), or a bus driver that does, splits them anyway. They have
+    /// no checksum, so a torn read cannot be detected.
+    ///
     /// A value the HDMI 2.1 specification leaves undefined (0x9–0xD) is
     /// [`LtpReq::Reserved`](crate::LtpReq::Reserved), not an error.
+    ///
+    /// [`read_block_bytewise`]: hdmi_hal::scdc::read_block_bytewise
     pub fn read_ltp_requests(&mut self) -> Result<LtpRequests, ScdcError<T::Error>> {
-        let flags1 = self
-            .transport
-            .read(codec::STATUS_FLAGS_1)
+        let mut flags = [0; 2];
+        self.transport
+            .read_block(codec::STATUS_FLAGS_1, &mut flags)
             .map_err(ScdcError::Transport)?;
-        let flags2 = self
-            .transport
-            .read(codec::STATUS_FLAGS_2)
-            .map_err(ScdcError::Transport)?;
+        let [flags1, flags2] = flags;
         Ok(codec::decode_ltp_requests(flags1, flags2))
     }
 }
@@ -288,12 +293,12 @@ mod tests {
     }
 
     #[test]
-    fn read_ltp_requests_reads_status_flags_1_then_2() {
+    fn read_ltp_requests_reads_status_flags_1_and_2_in_one_block() {
         let mut scdc = Scdc::new(TestTransport::new());
         scdc.read_ltp_requests().unwrap();
         assert_eq!(
-            scdc.into_transport().log()[..3],
-            [Some(Op::Read(0x41)), Some(Op::Read(0x42)), None]
+            scdc.into_transport().log()[..2],
+            [Some(Op::ReadBlock(0x41, 2)), None]
         );
     }
 
@@ -322,13 +327,16 @@ mod tests {
                 .read_source_test_config()
                 .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
-        // First (Status_Flags_1) and second (Status_Flags_2) read of the LTP requests.
-        for n in 0..2 {
-            assert!(
-                Scdc::new(TestTransport::failing_after(n))
-                    .read_ltp_requests()
-                    .is_err_and(|error| matches!(error, ScdcError::Transport(())))
-            );
-        }
+        // The LTP requests are one block read.
+        assert!(
+            Scdc::new(TestTransport::failing_after(0))
+                .read_ltp_requests()
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
+        );
+        assert!(
+            Scdc::new(TestTransport::failing_after(1))
+                .read_ltp_requests()
+                .is_ok()
+        );
     }
 }

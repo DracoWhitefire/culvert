@@ -12,7 +12,7 @@ use core::convert::Infallible;
 use culvert::{Scdc, ScdcError};
 use display_types::cea861::hdmi_forum::HdmiForumFrl;
 use hdmi_hal::phy::{EqParams, FrlOutput, HdmiPhy, LanePatterns, LtpPattern};
-use hdmi_hal::scdc::ScdcTransport;
+use hdmi_hal::scdc::{ScdcTransport, read_block_bytewise};
 use plumbob::{
     FallbackReason, FfeLevels, FrlTrainer, TmdsExit, TrainingConfig, TrainingError, TrainingEvent,
     TrainingOutcome, TrainingWarning,
@@ -162,6 +162,11 @@ impl ScdcTransport for SinkTransport {
     fn write(&mut self, reg: u8, value: u8) -> Result<(), Nack> {
         self.0.get_mut().write(reg, value);
         Ok(())
+    }
+
+    fn read_block(&self, reg: u8, buf: &mut [u8]) -> Result<(), Nack> {
+        // One `read` per byte, as the scripted sink answers each register on its own.
+        read_block_bytewise(self, reg, buf)
     }
 }
 
