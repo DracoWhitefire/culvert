@@ -18,17 +18,9 @@ all-features = true
 plumbob = ["dep:plumbob"]
 
 [dependencies]
-display-types = { version = "0.4", default-features = false }
-hdmi-hal = { version = "0.5", default-features = false }
-plumbob = { optional = true, version = "^0.3.0" }
+display-types = { version = "0.4.3", default-features = false }
+hdmi-hal = { version = "0.6", default-features = false }
+plumbob = { optional = true, version = "0.4" }
 
 [dev-dependencies]
-hdmi-hal = { version = "0.5", default-features = false }
-
-# Temporary, until display-types 0.4.3 (`HdmiForumFrl::lanes`), hdmi-hal with the required
-# `read_block` and plumbob without `read_ced` are published: replaces them for the whole
-# graph, each other's dependencies included. Remove before merging.
-[patch.crates-io]
-plumbob = { path = "../plumbob" }
-hdmi-hal = { path = "../hdmi-hal" }
-display-types = { path = "../display-types" }
+hdmi-hal = { version = "0.6", default-features = false }

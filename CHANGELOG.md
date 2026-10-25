@@ -24,7 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **With the `plumbob` feature, `Scdc<T>` no longer implements a `read_ced`**: plumbob's
   `ScdcClient` no longer has one (training never read the counters). The `From`
   conversions of `CedCount` and `CedCounters` to plumbob's types are gone with it. Read
-  CED from `Scdc<T>` directly.
+  CED from `Scdc<T>` directly. The feature now requires plumbob 0.4, whose `ScdcClient` it
+  implements; move plumbob alongside.
 - **Every `ScdcTransport` must implement `read_block`**: culvert requires the hdmi-hal
   release where it is required (0.6). A transport that cannot read a block in one
   transaction adds `use hdmi_hal::scdc::read_block_bytewise;` and implements it with that.
