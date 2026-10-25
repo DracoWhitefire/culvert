@@ -1,12 +1,24 @@
 # culvert
 
-[![CI](https://github.com/DracoWhitefire/culvert/actions/workflows/ci.yml/badge.svg)](https://github.com/DracoWhitefire/culvert/actions/workflows/ci.yml)
+[![CI](https://github.com/ashlar-display/culvert/actions/workflows/ci.yml/badge.svg)](https://github.com/ashlar-display/culvert/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/culvert.svg)](https://crates.io/crates/culvert)
 [![docs.rs](https://docs.rs/culvert/badge.svg)](https://docs.rs/culvert)
 [![License: MPL-2.0](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](LICENSE)
 [![Rust 1.85+](https://img.shields.io/badge/rustc-1.85+-orange.svg)](https://blog.rust-lang.org/2025/02/20/Rust-1.85.0.html)
 [![SLSA Level 2](https://slsa.dev/images/gh-badge-level2.svg)](https://slsa.dev)
 [![trusted publishing only](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fcrates.io%2Fapi%2Fv1%2Fcrates%2Fculvert&query=%24.crate.trustpub_only&label=trusted%20publishing%20only)](#verifying-releases)
+
+> **Part of [Ashlar](https://ashlar-display.org)** — a display connection stack in Rust,
+> HDMI 2.1 first: from EDID parsing through mode negotiation to FRL link training.
+>
+> [display-types](https://github.com/DracoWhitefire/display-types) ·
+> [piaf](https://github.com/DracoWhitefire/piaf) ·
+> [concordance](https://github.com/DracoWhitefire/concordance) ·
+> [cartouche](https://github.com/DracoWhitefire/cartouche) ·
+> **culvert** ·
+> [plumbob](https://github.com/DracoWhitefire/plumbob) ·
+> [hdmi-hal](https://github.com/DracoWhitefire/hdmi-hal) ·
+> [hdmi-hal-i2c-dev](https://github.com/DracoWhitefire/hdmi-hal-i2c-dev)
 
 Typed access to the HDMI 2.1 SCDC register map.
 
@@ -21,9 +33,8 @@ out of scope. Culvert provides the typed primitives; the caller decides when to 
 
 ## Usage
 
-```toml
-[dependencies]
-culvert = "0.2"
+```sh
+cargo add culvert
 ```
 
 Wrap your transport in `Scdc` and call typed methods:
@@ -62,9 +73,13 @@ if updates.flt_update {
     }
 }
 
-// Read per-lane character error counts
-let ced = scdc.read_ced()?;
-if let Some(count) = ced.lane0 {
+// Read per-lane character error counts, the CED block in one read, checksum checked
+let reading = scdc.read_ced(FrlRate::Rate12Gbps4Lanes.lanes())?;
+for warning in reading.iter_warnings() {
+    // e.g. a checksum mismatch: the counts may be torn; read again or distrust them
+    println!("CED warning: {warning:?}");
+}
+if let Some(count) = reading.counters.lane0 {
     println!("lane 0 errors: {}", count.value());
 }
 ```
@@ -72,16 +87,16 @@ if let Some(count) = ced.lane0 {
 To use culvert as the SCDC backend for `plumbob`'s link training state machine, enable
 the `plumbob` feature:
 
-```toml
-[dependencies]
-culvert  = { version = "0.1", features = ["plumbob"] }
-plumbob  = "0.1"
+```sh
+cargo add culvert --features plumbob
+cargo add plumbob
 ```
 
 `Scdc<T>` then implements `plumbob::ScdcClient`, one culvert method per training
 operation. `Scdc` does not wait between calls: plumbob polls `FLT_ready` and `Update_0`
-in loops whose limits assume one poll every 2 ms, so enforce that interval in the
-transport (or a wrapper around it).
+in loops whose limits assume one poll every 2 ms, so wait that interval in the two polled
+methods, in an `ScdcClient` that wraps `Scdc<T>`, and put a deadline there too, not in
+the transport; [`doc/architecture.md`](doc/architecture.md) shows how.
 
 ## Register coverage
 
@@ -94,13 +109,13 @@ transport (or a wrapper around it).
 | Source test configuration | 0x35        | `read_source_test_config` |
 | Status flags              | 0x40        | `read_status_flags` |
 | LTP requests              | 0x41–0x42   | `read_ltp_requests` |
-| Character Error Detection | 0x50–0x55, 0x57–0x58 | `read_ced` |
+| Character Error Detection | 0x50–0x58 (checksum at 0x56) | `read_ced` |
 | RS correction count       | 0x59–0x5A   | `read_rs_correction` |
 
 The register map and its sources are described in
 [`doc/architecture.md`](doc/architecture.md#the-scdc-register-map). Registers not yet
-covered (the CED checksum, manufacturer identification) are
-documented in [`doc/roadmap.md`](doc/roadmap.md).
+covered (manufacturer identification, among others) are documented in
+[`doc/roadmap.md`](doc/roadmap.md).
 
 ## Features
 
@@ -161,11 +176,19 @@ Releases are built on GitHub Actions and attested with
 [GitHub CLI](https://cli.github.com/) and run:
 
 ```sh
-gh attestation verify culvert-X.Y.Z.crate --repo DracoWhitefire/culvert
+gh attestation verify culvert-X.Y.Z.crate --repo ashlar-display/culvert
+```
+
+The release from before the repository moved to the `ashlar-display` organization (0.2.0)
+was attested under its previous owner, and verifies against it:
+
+```sh
+gh attestation verify culvert-0.2.0.crate --owner DracoWhitefire \
+  --signer-repo DracoWhitefire/culvert
 ```
 
 The attested `.crate` is attached to each
-[GitHub release](https://github.com/DracoWhitefire/culvert/releases).
+[GitHub release](https://github.com/ashlar-display/culvert/releases).
 
 Releases from 0.2.0 are uploaded through crates.io
 [trusted publishing](https://rust-lang.github.io/rfcs/3691-trusted-publishing-cratesio.html): the publish

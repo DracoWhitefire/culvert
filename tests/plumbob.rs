@@ -12,7 +12,7 @@ use core::convert::Infallible;
 use culvert::{Scdc, ScdcError};
 use display_types::cea861::hdmi_forum::HdmiForumFrl;
 use hdmi_hal::phy::{EqParams, FrlOutput, HdmiPhy, LanePatterns, LtpPattern};
-use hdmi_hal::scdc::ScdcTransport;
+use hdmi_hal::scdc::{ScdcTransport, read_block_bytewise};
 use plumbob::{
     FallbackReason, FfeLevels, FrlTrainer, TmdsExit, TrainingConfig, TrainingError, TrainingEvent,
     TrainingOutcome, TrainingWarning,
@@ -162,6 +162,11 @@ impl ScdcTransport for SinkTransport {
     fn write(&mut self, reg: u8, value: u8) -> Result<(), Nack> {
         self.0.get_mut().write(reg, value);
         Ok(())
+    }
+
+    fn read_block(&self, reg: u8, buf: &mut [u8]) -> Result<(), Nack> {
+        // One `read` per byte, as the scripted sink answers each register on its own.
+        read_block_bytewise(self, reg, buf)
     }
 }
 
@@ -554,8 +559,9 @@ fn update_0_flags_plumbob_does_not_handle_are_left_set() {
 }
 
 #[test]
-fn the_ffe_maximum_is_limited_per_rate_through_culvert() {
-    // FfeLevels::MAX is 7; up to 12 Gbps a sink allows 3.
+fn the_ffe_maximum_is_limited_per_rate() {
+    // FfeLevels::MAX is 7; up to 12 Gbps a sink allows 3. plumbob limits the levels before
+    // culvert encodes them (culvert would reject 7 at these rates).
     for (rate, config_1) in [(R12, 0x36u8), (HdmiForumFrl::Rate3Gbps3Lanes, 0x31)] {
         let mut sink = Sink::new();
         sink.flt_ready_after = Some(0);

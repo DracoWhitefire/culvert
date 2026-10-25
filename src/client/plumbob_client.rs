@@ -9,8 +9,8 @@ use plumbob::ScdcClient;
 
 use crate::error::ScdcError;
 use crate::register::{
-    CedCount, CedCounters, ClearableUpdateFlags, Config0, FfeLevels, FrlConfig, LtpReq,
-    LtpRequests, SourceTestConfig, UpdateFlags,
+    ClearableUpdateFlags, Config0, FfeLevels, FrlConfig, LtpReq, LtpRequests, SourceTestConfig,
+    UpdateFlags,
 };
 
 use super::Scdc;
@@ -18,8 +18,12 @@ use super::Scdc;
 /// Typed SCDC access for plumbob's link training state machine.
 ///
 /// `Scdc` does not wait between calls. plumbob polls `read_flt_ready` and
-/// `read_update_flags` in a loop whose limits assume one poll every 2 ms by default;
-/// enforce that interval in the transport (or a wrapper around it).
+/// `read_update_flags` in a loop whose limits assume one poll every 2 ms by default; wait
+/// that interval inside those two methods, in an `ScdcClient` of your own that wraps
+/// `Scdc<T>` and forwards the other five (`doc/architecture.md` shows one). A deadline or
+/// cancel signal belongs there too, following plumbob's "Stopping early" rule. Not in the
+/// transport: there a wait applies to every register access, and a transport cannot tell
+/// the polled reads from LTS:L's.
 impl<T: ScdcTransport> ScdcClient for Scdc<T> {
     type Error = ScdcError<T::Error>;
 
@@ -52,10 +56,6 @@ impl<T: ScdcTransport> ScdcClient for Scdc<T> {
 
     fn write_frl_config(&mut self, config: plumbob::FrlConfig) -> Result<(), Self::Error> {
         Scdc::write_frl_config(self, config.into())
-    }
-
-    fn read_ced(&mut self) -> Result<plumbob::CedCounters, Self::Error> {
-        Scdc::read_ced(self).map(Into::into)
     }
 }
 
@@ -139,23 +139,6 @@ impl From<plumbob::FrlConfig> for FrlConfig {
             // plumbob's levels are 0–7, which culvert's `FfeLevels` always accepts.
             ffe_levels: FfeLevels::new(config.ffe_levels.value()).unwrap_or_default(),
         }
-    }
-}
-
-impl From<CedCount> for plumbob::CedCount {
-    fn from(count: CedCount) -> Self {
-        Self::new(count.value())
-    }
-}
-
-impl From<CedCounters> for plumbob::CedCounters {
-    fn from(counters: CedCounters) -> Self {
-        Self::new(
-            counters.lane0.map(Into::into),
-            counters.lane1.map(Into::into),
-            counters.lane2.map(Into::into),
-            counters.lane3.map(Into::into),
-        )
     }
 }
 
@@ -329,27 +312,6 @@ mod tests {
         ));
     }
 
-    // --- read_ced: ERR_DET, validity bit 7 of each high byte
-
-    #[test]
-    fn read_ced_maps_each_lane() {
-        let mut scdc = scdc_with(&[
-            (0x50, 0x34),
-            (0x51, 0x92),
-            (0x52, 0x01),
-            (0x53, 0x00),
-            (0x54, 0xFF),
-            (0x55, 0xFF),
-            (0x57, 0x00),
-            (0x58, 0x80),
-        ]);
-        let ced = ScdcClient::read_ced(&mut scdc).unwrap();
-        assert_eq!(ced.lane0.map(|c| c.value()), Some(0x1234));
-        assert_eq!(ced.lane1, None);
-        assert_eq!(ced.lane2.map(|c| c.value()), Some(0x7FFF));
-        assert_eq!(ced.lane3.map(|c| c.value()), Some(0));
-    }
-
     // --- transport errors
 
     #[test]
@@ -359,20 +321,32 @@ mod tests {
             ScdcClient::read_flt_ready(&mut fails()),
             Err(ScdcError::Transport(()))
         ));
-        assert!(ScdcClient::read_update_flags(&mut fails()).is_err());
         assert!(
-            ScdcClient::clear_update_flags(&mut fails(), ClearableUpdateFlags::default()).is_err()
+            ScdcClient::read_update_flags(&mut fails())
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
-        assert!(ScdcClient::read_ltp_requests(&mut fails()).is_err());
-        assert!(ScdcClient::read_source_test_config(&mut fails()).is_err());
-        assert!(ScdcClient::write_config_0_defaults(&mut fails()).is_err());
+        assert!(
+            ScdcClient::clear_update_flags(&mut fails(), ClearableUpdateFlags::default())
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
+        );
+        assert!(
+            ScdcClient::read_ltp_requests(&mut fails())
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
+        );
+        assert!(
+            ScdcClient::read_source_test_config(&mut fails())
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
+        );
+        assert!(
+            ScdcClient::write_config_0_defaults(&mut fails())
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
+        );
         assert!(
             ScdcClient::write_frl_config(
                 &mut fails(),
                 FrlConfig::new(HdmiForumFrl::Rate6Gbps4Lanes, FfeLevels::default())
             )
-            .is_err()
+            .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
-        assert!(ScdcClient::read_ced(&mut fails()).is_err());
     }
 }

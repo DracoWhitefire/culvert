@@ -2,7 +2,8 @@
 
 Registers defined by the HDMI 2.1 SCDC specification (§10.4) that are not wrapped
 by culvert yet, plus the `Update_0` bit 7 (`LIP_Update`) that HDMI 2.2 adds. Methods for
-these groups may be added in later releases.
+these groups may be added in later releases. Additions to registers culvert already reads
+follow at the end; each is additive.
 
 ---
 
@@ -20,16 +21,6 @@ whatever registers the flag points at) will be added when culvert covers HDMI 2.
 None of the sources culvert's register map is based on defines a field in `Update_1`, so
 culvert does not access it (`codec::UPDATE_0` notes this). It will be wrapped if a field
 is defined.
-
----
-
-## CED checksum (0x56)
-
-`ERR_DET_Checksum` (0x56) is a checksum over the CED registers. Its address is
-`codec::ERR_DET_CHECKSUM`, but culvert does not read or verify it yet. Verifying it would
-let `read_ced` detect a counter pair torn between two reads. `hdmi-hal`'s
-`ScdcTransport::read_block` now allows reading the CED block in one transaction; using it,
-and deciding whether to verify the checksum then, is planned as its own change.
 
 ---
 
@@ -59,3 +50,33 @@ manufacturer-specific data (0xDE onwards). These are not required for link
 training and are deferred indefinitely. If they are ever needed, they would be
 exposed through a separate `read_manufacturer_info()` method returning raw bytes
 rather than typed fields, since the content is vendor-defined.
+
+---
+
+## One CED and RS read (0x50–0x5A)
+
+`read_ced` reads 0x50–0x58 and `read_rs_correction` 0x59–0x5A, two transactions. A link
+health monitor that polls both would save one with a single 11-byte read returning both,
+as a new method and type. Not needed for correctness: the CED counters and the RS count
+measure different things, so reading them at the same instant gains little. It will be
+designed with the monitor. A wider "link snapshot" of 0x40–0x5A would fit in 32 bytes, but
+reads the reserved registers 0x43–0x4F.
+
+---
+
+## Read-back decoders for register dumps
+
+A dump tool reads the register map through `ScdcTransport::read_block` in parts (a
+transport may limit the length; `hdmi-hal-i2c-dev`'s is 32 bytes) and decodes slices with
+`codec`: `decode_ced_block(&[u8; 9])` already works on a slice of a dump. Decoders for the
+registers culvert only writes are missing: `Config_0`, `Config_1` (rate and FFE levels;
+`ProtocolError::UnknownFrlRate`, "not currently returned", would be returned there) and
+`TMDS_Config`.
+
+---
+
+## Raw CED bytes in `CedReading`
+
+`CedReading` carries the decoded counters and the warnings, not the nine bytes read. A
+diagnostics consumer that wants them gets a new field: adding one to the
+`#[non_exhaustive]` struct breaks nothing. Added when a consumer needs it.

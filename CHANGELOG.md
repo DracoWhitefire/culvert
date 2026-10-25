@@ -7,6 +7,92 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-25
+
+### Breaking changes
+
+- **`read_ced` takes the link's lane count and returns a `CedReading`**:
+  `read_ced(lanes: HdmiLanes) -> Result<CedReading, ScdcError<_>>`, with display-types'
+  `HdmiLanes` (re-exported). It reads the CED block
+  (0x50–0x58) with one `read_block` and checks the checksum at 0x56, over 0x50–0x56 for
+  three lanes (TMDS and 3-lane FRL) and 0x50–0x58 for four. Reading byte by byte, a counter
+  the sink updated between its two bytes could read back as a value it never held (0x00FF
+  ticking to 0x0100 as 0x01FF), and nothing said so. A mismatch is a `CedWarning` next to
+  the counters, which are decoded anyway, not an error; so is a count for lane 3 at three
+  lanes, which stays `None`. Migration: `read_ced(rate.lanes())` (TMDS: `HdmiLanes::Three`)
+  and `reading.counters` where the counters were; decide what a warning means for you.
+- **`codec::CED_REGISTERS` and `codec::decode_ced` are removed**, the unchecked path; use
+  `codec::CED_BLOCK_START`, `CED_BLOCK_LEN` and `decode_ced_block`.
+- **With the `plumbob` feature, `Scdc<T>` no longer implements a `read_ced`**: plumbob's
+  `ScdcClient` no longer has one (training never read the counters). The `From`
+  conversions of `CedCount` and `CedCounters` to plumbob's types are gone with it. Read
+  CED from `Scdc<T>` directly. The feature now requires plumbob 0.4, whose `ScdcClient` it
+  implements; move plumbob alongside.
+- **Every `ScdcTransport` must implement `read_block`**: culvert requires the hdmi-hal
+  release where it is required (0.6). A transport that cannot read a block in one
+  transaction adds `use hdmi_hal::scdc::read_block_bytewise;` and implements it with that.
+- **`read_ltp_requests` and `read_rs_correction` read their two registers with one
+  `read_block`** instead of two `read`s, so they now depend on the transport's
+  `read_block`: one that fails it fails these reads, and with the `plumbob` feature that
+  fails link training (`read_ltp_requests` is polled in LTS:3). One transaction keeps the
+  transport from splitting the two registers; whether the sink holds them still is up to
+  the sink, and neither has a checksum, so a torn read of them cannot be detected.
+
+### Added
+
+- **`HdmiLanes`**, re-exported from display-types (`Three`, `Four`; `FrlRate::lanes()`
+  gives it for every rate), **`CedReading`** (`counters`, and its
+  warnings through `warnings()` and `iter_warnings()`, stored privately) and
+  **`CedWarning`** (`ChecksumMismatch { expected, found }`, `UnusedLaneReported { count }`).
+- **`codec::decode_ced_block`**, `codec::CED_BLOCK_START` and `codec::CED_BLOCK_LEN`.
+
+### Changed
+
+- **The CED and RS counters' documentation says how they behave**, as far as public
+  sources show: they saturate at 0x7FFF; a sink may clear them when read, so a lower
+  reading is a reset; count afresh after retraining, a rate change or a hot plug;
+  `CED_Update` / `RSED_Update` are set by the sink and kept until the source clears them,
+  a hint at most (`CED_Update` was seen set with every count zero), and may never be set,
+  so read the counters regularly; a lane without
+  a valid count is unknown, not zero. `clear_update_flags` says to clear only the flags
+  read, and the CED and RS flags before reading the counters.
+
+- **Part of Ashlar** — the README now opens with a block naming the
+  [Ashlar](https://ashlar-display.org) stack and linking the other crates in it. Keywords
+  are aligned across the stack, with `ashlar` and `hdmi` on every crate; `ashlar` is added,
+  `embedded` is dropped in favour of more specific keywords. Categories gain
+  `no-std::no-alloc`. The crate's `homepage` is now the Ashlar website.
+
+- **The poll interval and a deadline belong in the polled methods, not the transport.**
+  The `plumbob` adapter's documentation, the README and `doc/architecture.md` used to say
+  to enforce plumbob's 2 ms poll interval in the transport. plumbob's `ScdcClient`
+  contract puts it inside the two polled methods, `read_flt_ready` and
+  `read_update_flags`: a wait in the transport applies to every register access, and a
+  deadline there cannot tell the polled reads from LTS:L's, so it can fail LTS:L and leave
+  the sink in FRL. `doc/architecture.md` now shows an `ScdcClient` that wraps `Scdc<T>`,
+  waits in those two methods and forwards the rest, and maps plumbob's "Stopping early"
+  rule onto it.
+- The README and `doc/architecture.md` use `cargo add` instead of the stale `"0.1"`
+  version pins.
+- **Moved to the `ashlar-display` organization** — the repository is now
+  `ashlar-display/culvert` (the old URLs redirect), and `repository` points there.
+  Releases are attested and published from the new repository; 0.2.0, attested before the
+  move, verifies with `--owner DracoWhitefire --signer-repo DracoWhitefire/culvert` (see
+  "Verifying releases" in the README). The code of conduct is now the organization's,
+  shared by every Ashlar repository; the repository's own copy is removed.
+
+### Internal
+
+- **The client tests check more of what they claim**, mirroring culvert-async's:
+  transport errors are matched as `ScdcError::Transport`, not only as an error; a CED
+  test gives every lane a distinct, asymmetric count, so a swapped byte or lane shows; the
+  version tests use 0xA5 and 0x5A rather than 0x01; and `TestTransport` records the
+  operations, so tests pin the registers `read_status_flags`, `read_ltp_requests`,
+  `read_ced`, `read_rs_correction` and `clear_update_flags` touch, in order and count.
+- The `FfeLevels` tests moved from the client module to the register module, where the
+  type is, and the end-to-end FFE test is named for what it checks (plumbob limits the
+  levels; culvert encodes them).
+
 ## [0.2.0] - 2026-10-17
 
 ### Breaking changes

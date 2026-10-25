@@ -22,6 +22,14 @@ impl<T: ScdcTransport> Scdc<T> {
     /// set to `false` are left unchanged, and so is `RR_Test`, which the source does not
     /// clear ([`ClearableUpdateFlags`] has no field for it). To acknowledge every flag just
     /// read, pass [`UpdateFlags::clearable`].
+    ///
+    /// Clear only the flags read and acted on: the write touches no other bit, so a flag
+    /// the sink sets between the read and the clear stays set for the next read.
+    /// `CED_Update` and `RSED_Update` are kept until the source clears them; clear them
+    /// before reading the counters, so that a flag seen set later was set after that
+    /// read. Read first and clear after, and a flag set in between is cleared unseen (any
+    /// counts behind it are not lost: the counters keep them for the next read). Either
+    /// flag is a hint at most: a set flag does not mean there are counts.
     pub fn clear_update_flags(
         &mut self,
         flags: ClearableUpdateFlags,
@@ -36,7 +44,8 @@ impl<T: ScdcTransport> Scdc<T> {
 #[cfg(test)]
 mod tests {
     use super::super::Scdc;
-    use super::super::test_transport::TestTransport;
+    use super::super::test_transport::{Op, TestTransport};
+    use crate::error::ScdcError;
     use crate::register::{ClearableUpdateFlags, UpdateFlags};
 
     fn read(byte: u8) -> UpdateFlags {
@@ -107,16 +116,29 @@ mod tests {
     }
 
     #[test]
+    fn clear_update_flags_is_one_write() {
+        let mut scdc = Scdc::new(TestTransport::new());
+        scdc.clear_update_flags(ClearableUpdateFlags::new(
+            false, false, false, true, true, false,
+        ))
+        .unwrap();
+        assert_eq!(
+            scdc.into_transport().log()[..2],
+            [Some(Op::Write(0x10, 0x30)), None]
+        );
+    }
+
+    #[test]
     fn transport_error_propagates() {
         assert!(
             Scdc::new(TestTransport::failing_after(0))
                 .read_update_flags()
-                .is_err()
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
         assert!(
             Scdc::new(TestTransport::failing_after(0))
                 .clear_update_flags(ClearableUpdateFlags::default())
-                .is_err()
+                .is_err_and(|error| matches!(error, ScdcError::Transport(())))
         );
     }
 }

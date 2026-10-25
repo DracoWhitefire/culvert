@@ -1,14 +1,15 @@
 [package]
 name = "culvert"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Typed access to the HDMI 2.1 SCDC register map"
 readme = "README.md"
 license = "MPL-2.0"
-repository = "https://github.com/DracoWhitefire/culvert"
-keywords = ["hdmi", "scdc", "frl", "embedded", "no-std"]
-categories = ["hardware-support", "embedded", "no-std"]
+repository = "https://github.com/ashlar-display/culvert"
+homepage = "https://ashlar-display.org"
+keywords = ["ashlar", "hdmi", "no-std", "scdc", "frl"]
+categories = ["hardware-support", "embedded", "no-std", "no-std::no-alloc"]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -17,9 +18,9 @@ all-features = true
 plumbob = ["dep:plumbob"]
 
 [dependencies]
-display-types = { version = "0.4", default-features = false }
-hdmi-hal = { version = "0.5", default-features = false }
-plumbob = { optional = true, version = "^0.3.0" }
+display-types = { version = "0.4.3", default-features = false }
+hdmi-hal = { version = "0.6", default-features = false }
+plumbob = { optional = true, version = "0.4" }
 
 [dev-dependencies]
-hdmi-hal = { version = "0.5", default-features = false }
+hdmi-hal = { version = "0.6", default-features = false }
